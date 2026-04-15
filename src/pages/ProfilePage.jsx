@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
+import { uploadFileViaPresign } from "../lib/uploadMedia.js";
 import { Camera, Mail, User } from "lucide-react";
+import toast from "react-hot-toast";
 
 export const ProfilePage = () => {
   const { authUser, isUpdatingProfile, updateProfile } = useAuthStore();
@@ -10,15 +12,18 @@ export const ProfilePage = () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
+    const previewUrl = URL.createObjectURL(file);
+    setSelectedImg(previewUrl);
 
-    reader.readAsDataURL(file);
-
-    reader.onload = async () => {
-      const base64Image = reader.result;
-      setSelectedImg(base64Image);
-      await updateProfile({ profilePic: base64Image });
-    };
+    try {
+      const { publicUrl } = await uploadFileViaPresign(file, "avatar");
+      await updateProfile({ profilePic: publicUrl });
+    } catch (e) {
+      toast.error(e?.message || "Upload failed");
+    } finally {
+      URL.revokeObjectURL(previewUrl);
+      setSelectedImg(null);
+    }
   };
 
   return (

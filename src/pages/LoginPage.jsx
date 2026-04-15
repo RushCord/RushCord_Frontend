@@ -106,11 +106,17 @@ export const LoginPage = () => {
             </button>
           </form>
 
-          <div className="text-center">
+          <div className="text-center space-y-2">
             <p className="text-base-content/60">
               Don&apos;t have an account?{" "}
               <Link to="/signup" className="link link-primary">
                 Create account
+              </Link>
+            </p>
+            <p className="text-sm text-base-content/50">
+              Need to enter your email code?{" "}
+              <Link to="/confirm-email" className="link link-primary">
+                Verify email
               </Link>
             </p>
           </div>

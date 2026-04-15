@@ -1,46 +1,97 @@
 import { create } from "zustand";
-import { axiosInstance } from "../lib/axios.js";
+import {
+  axiosInstance,
+  setAuthTokens,
+  clearAuthTokens,
+  getAccessToken,
+  getRefreshToken,
+} from "../lib/axios.js";
+import { useChatStore } from "./useChatStore";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 
-const BASE_URL =
-  import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
+const SOCKET_BASE = (() => {
+  const fromEnv = import.meta.env.VITE_SOCKET_URL;
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") {
+    return fromEnv.trim().replace(/\/+$/, "");
+  }
+  return import.meta.env.MODE === "development" ? "http://localhost:3000" : "/";
+})();
 
 export const useAuthStore = create((set, get) => ({
   authUser: null,
   isSigningUp: false,
+  isConfirming: false,
   isLoggingIn: false,
   isUpdatingProfile: false,
   isCheckingAuth: true,
   onlineUsers: [],
-  incomingCall: null, // { from, offer }
+  incomingCall: null,
   socket: null,
 
   checkAuth: async () => {
     try {
+      if (!getAccessToken()) {
+        set({ authUser: null });
+        return;
+      }
       const res = await axiosInstance.get("/auth/check");
-
       set({ authUser: res.data });
       get().connectSocket();
     } catch (error) {
       console.log("Error in checkAuth:", error);
+      clearAuthTokens();
       set({ authUser: null });
     } finally {
       set({ isCheckingAuth: false });
     }
   },
 
-  signup: async (data) => {
+  /** POST /auth/register — returns { userSub, pendingConfirmation } */
+  register: async ({ email, password, displayName }) => {
     set({ isSigningUp: true });
     try {
-      const res = await axiosInstance.post("/auth/signup", data);
-      set({ authUser: res.data });
-      toast.success("Account created successfully");
-      get().connectSocket();
+      const res = await axiosInstance.post("/auth/register", {
+        email,
+        password,
+        displayName,
+      });
+      toast.success("Check your email for the verification code");
+      return res.data;
     } catch (error) {
-      toast.error(error.response.data.message);
+      const msg =
+        error.response?.data?.message || "Registration failed";
+      toast.error(msg);
+      throw error;
     } finally {
       set({ isSigningUp: false });
+    }
+  },
+
+  confirmSignup: async ({ email, otpCode }) => {
+    set({ isConfirming: true });
+    try {
+      await axiosInstance.post("/auth/confirm", { email, otpCode });
+      toast.success("Email verified. You can sign in now.");
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Verification failed";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isConfirming: false });
+    }
+  },
+
+  resendConfirmation: async ({ email }) => {
+    try {
+      await axiosInstance.post("/auth/resend-confirmation", { email });
+      toast.success("A new code has been sent to your email");
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Could not resend code";
+      toast.error(msg);
+      throw error;
     }
   },
 
@@ -48,12 +99,15 @@ export const useAuthStore = create((set, get) => ({
     set({ isLoggingIn: true });
     try {
       const res = await axiosInstance.post("/auth/login", data);
-      set({ authUser: res.data });
+      const { accessToken, refreshToken } = res.data;
+      setAuthTokens(accessToken, refreshToken || "");
+      const checkRes = await axiosInstance.get("/auth/check");
+      set({ authUser: checkRes.data });
       toast.success("Logged in successfully");
-
       get().connectSocket();
     } catch (error) {
-      toast.error(error.response.data.message);
+      const msg = error.response?.data?.message || "Login failed";
+      toast.error(msg);
     } finally {
       set({ isLoggingIn: false });
     }
@@ -61,12 +115,22 @@ export const useAuthStore = create((set, get) => ({
 
   logout: async () => {
     try {
-      await axiosInstance.post("/auth/logout");
+      const access = getAccessToken();
+      const refresh = getRefreshToken();
+      if (access) {
+        await axiosInstance.post(
+          "/auth/logout",
+          refresh ? { refreshToken: refresh } : {}
+        );
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message;
+      if (msg) toast.error(msg);
+    } finally {
+      clearAuthTokens();
       set({ authUser: null });
       toast.success("Logged out successfully");
       get().disconnectSocket();
-    } catch (error) {
-      toast.error(error.response.data.message);
     }
   },
 
@@ -78,7 +142,8 @@ export const useAuthStore = create((set, get) => ({
       toast.success("Profile updated successfully");
     } catch (error) {
       console.log("error in update profile:", error);
-      toast.error(error.response.data.message);
+      const msg = error.response?.data?.message || "Update failed";
+      toast.error(msg);
     } finally {
       set({ isUpdatingProfile: false });
     }
@@ -86,34 +151,40 @@ export const useAuthStore = create((set, get) => ({
 
   connectSocket: () => {
     const { authUser } = get();
-    if (!authUser || get().socket?.connected) return;
+    const token = getAccessToken();
+    if (!authUser || !token) return;
+    if (get().socket?.connected) return;
+    const old = get().socket;
+    if (old) {
+      old.disconnect();
+      set({ socket: null });
+    }
 
-    const socket = io(BASE_URL, {
-      query: {
-        userId: authUser._id,
-      },
+    const socket = io(SOCKET_BASE, {
+      auth: { token },
     });
     socket.connect();
 
-    console.log("🔌 Socket connecting with userId:", authUser._id);
+    console.log("🔌 Socket connecting (Cognito sub):", authUser._id);
 
-    set({ socket: socket });
+    set({ socket });
+
+    // Subscribe chat events globally so sidebar/cache updates even before opening a chat
+    try {
+      useChatStore.getState().subscribeToMessages();
+    } catch {
+      // ignore
+    }
 
     socket.on("getOnlineUsers", (userIds) => {
-      console.log("👥 Online users:", userIds);
       set({ onlineUsers: userIds });
     });
 
-    // incoming call signaling: store incoming call so UI can show accept/decline
     socket.on("incomingCall", ({ from, offer }) => {
-      console.log("📞 Incoming call from:", from);
       set({ incomingCall: { from, offer } });
     });
 
-    // remote hangup: clear any incomingCall state
     socket.on("hangup", ({ from }) => {
-      console.log("🔚 Hangup from:", from);
-      // if someone hung up, clear incomingCall if matches
       const ic = get().incomingCall;
       if (ic && ic.from === from) set({ incomingCall: null });
     });
@@ -125,10 +196,20 @@ export const useAuthStore = create((set, get) => ({
     socket.on("disconnect", () => {
       console.log("🔌 Socket disconnected");
     });
+
+    socket.on("connect_error", (err) => {
+      console.error("Socket connect_error:", err.message);
+    });
   },
   clearIncomingCall: () => set({ incomingCall: null }),
   disconnectSocket: () => {
-    if (get().socket?.connected) get().socket.disconnect();
-    set({ incomingCall: null });
+    const s = get().socket;
+    if (s?.connected) s.disconnect();
+    set({ incomingCall: null, socket: null });
+    try {
+      useChatStore.getState().unsubscribeFromMessages();
+    } catch {
+      // ignore
+    }
   },
 }));

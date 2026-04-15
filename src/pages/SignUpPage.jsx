@@ -3,7 +3,8 @@ import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare, User } from "lucide-react";
 import AuthImagePattern from "../components/AuthImagePattern";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 
 export const SignUpPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -13,34 +14,49 @@ export const SignUpPage = () => {
     password: "",
   });
 
-  const { signup, isSigningUp } = useAuthStore();
+  const navigate = useNavigate();
+  const { register, isSigningUp } = useAuthStore();
 
   const validateForm = () => {
     if (!formData.fullName.trim()) {
-        return toast.error("Full name is required");
+      toast.error("Full name is required");
+      return false;
     }
     if (!formData.email.trim()) {
-        return toast.error("Email is required");
+      toast.error("Email is required");
+      return false;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
-        return toast.error("Please enter a valid email address");
+      toast.error("Please enter a valid email address");
+      return false;
     }
     if (!formData.password) {
-        return toast.error("Password is required");
+      toast.error("Password is required");
+      return false;
     }
-    if (formData.password.length < 6) {
-        return toast.error("Password must be at least 6 characters long");
+    if (formData.password.length < 8) {
+      toast.error("Password must be at least 8 characters (Cognito policy)");
+      return false;
     }
     return true;
-
-        
   };
-  const handleSubmit = (e) => {
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const success = validateForm();
-    if(success) {
-        signup(formData);
+    if (!validateForm()) return;
+    try {
+      await register({
+        email: formData.email.trim(),
+        password: formData.password,
+        displayName: formData.fullName.trim(),
+      });
+      navigate("/confirm-email", {
+        replace: false,
+        state: { email: formData.email.trim() },
+      });
+    } catch {
+      /* toast in store */
     }
   };
   return (
@@ -131,6 +147,9 @@ export const SignUpPage = () => {
                   )}
                 </button>
               </div>
+              <p className="text-xs text-base-content/50 mt-1">
+                Use at least 8 characters with uppercase, lowercase, number, and symbol (Cognito).
+              </p>
             </div>
 
             <button

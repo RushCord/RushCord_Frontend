@@ -24,8 +24,77 @@ export default function VideoCall({
   const socket = useAuthStore((s) => s.socket);
   const [incomingCaller, setIncomingCaller] = useState(null);
   const [incomingOffer, setIncomingOffer] = useState(null);
+  const [cameras, setCameras] = useState([]); // [{ deviceId, label }]
+  const [selectedCameraId, setSelectedCameraId] = useState("");
+  const [microphones, setMicrophones] = useState([]); // [{ deviceId, label }]
+  const [selectedMicId, setSelectedMicId] = useState("");
+  const [speakers, setSpeakers] = useState([]); // [{ deviceId, label }]
+  const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
+  const [speakerSupported, setSpeakerSupported] = useState(true);
+  const acceptOnceRef = useRef(false);
   // const incomingCall = useAuthStore((s) => s.incomingCall);
   // const clearIncomingCall = useAuthStore((s) => s.clearIncomingCall);
+
+  const refreshDevices = async () => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices
+        .filter((d) => d.kind === "videoinput")
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Camera ${idx + 1}`,
+        }));
+      setCameras(cams);
+      if (!selectedCameraId && cams[0]?.deviceId) {
+        setSelectedCameraId(cams[0].deviceId);
+      }
+
+      const mics = devices
+        .filter((d) => d.kind === "audioinput")
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Microphone ${idx + 1}`,
+        }));
+      setMicrophones(mics);
+      if (!selectedMicId && mics[0]?.deviceId) {
+        setSelectedMicId(mics[0].deviceId);
+      }
+
+      const outs = devices
+        .filter((d) => d.kind === "audiooutput")
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Speaker ${idx + 1}`,
+        }));
+      setSpeakers(outs);
+      if (!selectedSpeakerId && outs[0]?.deviceId) {
+        setSelectedSpeakerId(outs[0].deviceId);
+      }
+    } catch (e) {
+      // ignore device enumeration errors
+    }
+  };
+
+  const applySpeaker = async (deviceId) => {
+    try {
+      const el = remoteVideo.current;
+      if (!el) return;
+      const fn = el.setSinkId;
+      if (typeof fn !== "function") {
+        setSpeakerSupported(false);
+        return;
+      }
+      setSpeakerSupported(true);
+      await fn.call(el, deviceId || "");
+      setSelectedSpeakerId(deviceId || "");
+    } catch (err) {
+      // Some browsers require secure context / user gesture
+      const msg = `❌ setSinkId error: ${err.message}`;
+      console.error(msg);
+      setError(msg);
+    }
+  };
 
   // =========================
   // INIT PEER
@@ -122,13 +191,28 @@ export default function VideoCall({
   // =========================
   // START MEDIA
   // =========================
-  const startMedia = async () => {
+  const startMedia = async (opts = {}) => {
     try {
-      if (stream) return; // Media đã được khởi động
+      const { videoDeviceId, audioDeviceId } = opts;
+      if (stream) return stream; // Media đã được khởi động
+
+      const videoConstraints =
+        typeof videoDeviceId === "string" && videoDeviceId
+          ? {
+              deviceId: { exact: videoDeviceId },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            }
+          : { width: { ideal: 1280 }, height: { ideal: 720 } };
+
+      const audioConstraints =
+        typeof audioDeviceId === "string" && audioDeviceId
+          ? { deviceId: { exact: audioDeviceId } }
+          : true;
 
       const localStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
+        video: videoConstraints,
+        audio: audioConstraints,
       });
 
       console.log("🎥 Got local stream");
@@ -139,12 +223,19 @@ export default function VideoCall({
 
       setStream(localStream);
 
-      // Thêm tracks vào peer connection nếu đã tồn tại
+      // Thêm tracks vào peer connection nếu đã tồn tại (chỉ add nếu chưa có sender cho kind đó)
       if (pc.current) {
+        const senders = pc.current.getSenders?.() || [];
         localStream.getTracks().forEach((track) => {
-          pc.current.addTrack(track, localStream);
+          const hasSenderForKind = senders.some((s) => s.track?.kind === track.kind);
+          if (!hasSenderForKind) {
+            pc.current.addTrack(track, localStream);
+          }
         });
       }
+
+      // refresh device list (labels become available after permission)
+      refreshDevices();
 
       return localStream;
     } catch (err) {
@@ -152,6 +243,121 @@ export default function VideoCall({
       console.error(errorMsg);
       setError(errorMsg);
       throw err;
+    }
+  };
+
+  const switchCamera = async (nextDeviceId) => {
+    try {
+      if (!nextDeviceId) return;
+      if (!pc.current) {
+        setSelectedCameraId(nextDeviceId);
+        await startMedia({ videoDeviceId: nextDeviceId });
+        return;
+      }
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          deviceId: { exact: nextDeviceId },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false, // keep existing mic track if any
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (!newVideoTrack) throw new Error("No video track from selected camera");
+
+      // update local preview but keep audio from existing stream
+      const prevStream = stream;
+      const combined = new MediaStream();
+      const prevAudio = prevStream?.getAudioTracks?.() || [];
+      prevAudio.forEach((t) => combined.addTrack(t));
+      combined.addTrack(newVideoTrack);
+      if (localVideo.current) localVideo.current.srcObject = combined;
+
+      // replace outgoing track (no renegotiation needed)
+      const sender =
+        pc.current
+          .getSenders?.()
+          ?.find((s) => s.track && s.track.kind === "video") || null;
+
+      if (sender?.replaceTrack) {
+        await sender.replaceTrack(newVideoTrack);
+      } else {
+        // fallback: add track if no sender yet
+        pc.current.addTrack(newVideoTrack, combined);
+      }
+
+      // stop old camera track
+      try {
+        prevStream?.getVideoTracks?.().forEach((t) => t.stop());
+      } catch (e) {}
+      // stop temp stream tracks except the one we now own (video track is in use, but temp stream can be stopped safely)
+      try {
+        newStream.getTracks().forEach((t) => {
+          if (t !== newVideoTrack) t.stop();
+        });
+      } catch (e) {}
+
+      setStream(combined);
+      setSelectedCameraId(nextDeviceId);
+      refreshDevices();
+    } catch (err) {
+      const errorMsg = `❌ switchCamera error: ${err.message}`;
+      console.error(errorMsg);
+      setError(errorMsg);
+    }
+  };
+
+  const switchMicrophone = async (nextDeviceId) => {
+    try {
+      if (!nextDeviceId) return;
+      if (!pc.current) {
+        setSelectedMicId(nextDeviceId);
+        await startMedia({ videoDeviceId: selectedCameraId, audioDeviceId: nextDeviceId });
+        return;
+      }
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: { deviceId: { exact: nextDeviceId } },
+      });
+      const newAudioTrack = newStream.getAudioTracks()[0];
+      if (!newAudioTrack) throw new Error("No audio track from selected microphone");
+
+      const prevStream = stream;
+      const combined = new MediaStream();
+      const prevVideo = prevStream?.getVideoTracks?.() || [];
+      prevVideo.forEach((t) => combined.addTrack(t));
+      combined.addTrack(newAudioTrack);
+      if (localVideo.current) localVideo.current.srcObject = combined;
+
+      const sender =
+        pc.current
+          .getSenders?.()
+          ?.find((s) => s.track && s.track.kind === "audio") || null;
+
+      if (sender?.replaceTrack) {
+        await sender.replaceTrack(newAudioTrack);
+      } else {
+        pc.current.addTrack(newAudioTrack, combined);
+      }
+
+      try {
+        prevStream?.getAudioTracks?.().forEach((t) => t.stop());
+      } catch (e) {}
+      try {
+        newStream.getTracks().forEach((t) => {
+          if (t !== newAudioTrack) t.stop();
+        });
+      } catch (e) {}
+
+      setStream(combined);
+      setSelectedMicId(nextDeviceId);
+      refreshDevices();
+    } catch (err) {
+      const errorMsg = `❌ switchMicrophone error: ${err.message}`;
+      console.error(errorMsg);
+      setError(errorMsg);
     }
   };
 
@@ -165,7 +371,7 @@ export default function VideoCall({
 
       // Bắt đầu media trước khi tạo offer
       console.log("📹 Starting media...");
-      await startMedia();
+      await startMedia({ videoDeviceId: selectedCameraId, audioDeviceId: selectedMicId });
 
       // Chờ RTCPeerConnection sẵn sàng
       if (!pc.current || pc.current.signalingState === "closed") {
@@ -240,8 +446,14 @@ export default function VideoCall({
     }
 
     try {
+      if (acceptOnceRef.current) {
+        console.log("ℹ️ acceptCall already handled; skipping");
+        return;
+      }
+      acceptOnceRef.current = true;
+
       console.log("📹 Starting media for accept...");
-      const localStream = await startMedia();
+      const localStream = await startMedia({ videoDeviceId: selectedCameraId, audioDeviceId: selectedMicId });
 
       // Reset peer connection if it's in wrong state
       if (pc.current && pc.current.signalingState !== "stable") {
@@ -308,8 +520,10 @@ export default function VideoCall({
 
         // Add local stream tracks to peer connection
         if (localStream) {
+          const senders = pc.current.getSenders?.() || [];
           localStream.getTracks().forEach((track) => {
-            pc.current.addTrack(track, localStream);
+            const hasSenderForKind = senders.some((s) => s.track?.kind === track.kind);
+            if (!hasSenderForKind) pc.current.addTrack(track, localStream);
           });
         }
       }
@@ -318,16 +532,30 @@ export default function VideoCall({
         throw new Error("RTCPeerConnection is closed");
       }
 
-      console.log("📥 Setting remote description...");
-      await pc.current.setRemoteDescription(
-        new RTCSessionDescription(propIncomingOffer),
-      );
+      // If remote offer already applied, don't apply again.
+      const existingRemote = pc.current.currentRemoteDescription;
+      if (existingRemote?.type !== "offer") {
+        console.log("📥 Setting remote description...");
+        await pc.current.setRemoteDescription(
+          new RTCSessionDescription(propIncomingOffer),
+        );
+      } else {
+        console.log("ℹ️ Remote offer already set; skipping setRemoteDescription");
+      }
       console.log(
         "📥 Remote description set, signaling state:",
         pc.current.signalingState,
       );
 
       console.log("📤 Creating answer...");
+      // If we already answered, don't answer again.
+      const existingLocal = pc.current.currentLocalDescription;
+      if (existingLocal?.type === "answer") {
+        console.log("ℹ️ Local answer already set; skipping answer creation");
+        setCallStatus("calling");
+        return;
+      }
+
       if (pc.current.signalingState !== "have-remote-offer") {
         console.error(
           "❌ Invalid signaling state for createAnswer:",
@@ -357,6 +585,7 @@ export default function VideoCall({
       setCallStatus("calling"); // Đợi ICE state chuyển sang connected mới set connected
       console.log("✅ Accept call completed, waiting for ICE connection...");
     } catch (err) {
+      acceptOnceRef.current = false;
       const errorMsg = `❌ acceptCall error: ${err.message}`;
       console.error(errorMsg);
       setError(errorMsg);
@@ -391,14 +620,24 @@ export default function VideoCall({
           throw new Error("RTCPeerConnection not ready");
         }
 
-        if (pc.current.signalingState !== "have-local-offer") {
-          console.error(
-            "❌ Invalid signaling state for setRemoteDescription:",
-            pc.current.signalingState,
-          );
-          throw new Error(
-            `Cannot set remote answer in state: ${pc.current.signalingState}`,
-          );
+        // If we already have an answer applied, ignore duplicates / late packets.
+        const existingRemote = pc.current.currentRemoteDescription;
+        if (existingRemote?.type === "answer") {
+          console.log("ℹ️ Remote answer already set; ignoring duplicate");
+          setCallStatus("connected");
+          return;
+        }
+
+        // Common valid state is "have-local-offer".
+        // Some browsers/flows can already be "stable" when the answer arrives (race / already applied).
+        const state = pc.current.signalingState;
+        const canApplyAnswer =
+          state === "have-local-offer" ||
+          (state === "stable" && !pc.current.currentRemoteDescription);
+
+        if (!canApplyAnswer) {
+          console.error("❌ Invalid state for remote answer:", state);
+          throw new Error(`Cannot set remote answer in state: ${state}`);
         }
 
         console.log("📥 Setting remote description from answer...");
@@ -459,6 +698,30 @@ export default function VideoCall({
   }, [remoteId, callStatus, propIncomingOffer]);
 
   // =========================
+  // INIT CAMERA LIST + DEVICECHANGE
+  // =========================
+  useEffect(() => {
+    refreshDevices();
+    const handler = () => refreshDevices();
+    try {
+      navigator.mediaDevices?.addEventListener?.("devicechange", handler);
+    } catch (e) {}
+    return () => {
+      try {
+        navigator.mediaDevices?.removeEventListener?.("devicechange", handler);
+      } catch (e) {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // apply speaker selection when available/changed
+  useEffect(() => {
+    if (!selectedSpeakerId) return;
+    applySpeaker(selectedSpeakerId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSpeakerId]);
+
+  // =========================
   // END CALL
   // =========================
   const endCall = () => {
@@ -485,6 +748,7 @@ export default function VideoCall({
 
     setStream(null);
     setError(null);
+    acceptOnceRef.current = false;
 
     // reset peer
     pc.current = null;
@@ -524,6 +788,96 @@ export default function VideoCall({
           ⚠️ {error}
         </div>
       )}
+
+      <div className="mb-3 grid grid-cols-1 gap-2">
+        <div className="flex items-center gap-2">
+          <label className="text-white text-sm w-20">Camera</label>
+          <select
+            value={selectedCameraId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setSelectedCameraId(id);
+              if (stream) switchCamera(id);
+            }}
+            className="bg-gray-800 text-white text-sm rounded px-2 py-1 border border-gray-700 flex-1"
+          >
+            {cameras.length === 0 ? (
+              <option value="">No camera</option>
+            ) : (
+              cameras.map((c) => (
+                <option key={c.deviceId} value={c.deviceId}>
+                  {c.label}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-white text-sm w-20">Mic</label>
+          <select
+            value={selectedMicId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setSelectedMicId(id);
+              if (stream) switchMicrophone(id);
+            }}
+            className="bg-gray-800 text-white text-sm rounded px-2 py-1 border border-gray-700 flex-1"
+          >
+            {microphones.length === 0 ? (
+              <option value="">No microphone</option>
+            ) : (
+              microphones.map((m) => (
+                <option key={m.deviceId} value={m.deviceId}>
+                  {m.label}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-white text-sm w-20">Speaker</label>
+          <select
+            value={selectedSpeakerId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setSelectedSpeakerId(id);
+              applySpeaker(id);
+            }}
+            className="bg-gray-800 text-white text-sm rounded px-2 py-1 border border-gray-700 flex-1"
+          >
+            {speakers.length === 0 ? (
+              <option value="">Default</option>
+            ) : (
+              <>
+                <option value="">Default</option>
+                {speakers.map((s) => (
+                  <option key={s.deviceId} value={s.deviceId}>
+                    {s.label}
+                  </option>
+                ))}
+              </>
+            )}
+          </select>
+          {!speakerSupported && (
+            <span className="text-xs text-gray-400">Not supported</span>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            startMedia({ videoDeviceId: selectedCameraId, audioDeviceId: selectedMicId })
+          }
+          disabled={!!stream}
+          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-3 py-2 rounded-lg text-sm"
+        >
+          Enable
+        </button>
+      </div>
 
       <div className="mb-3 flex gap-2">
         <button

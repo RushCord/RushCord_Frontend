@@ -5,7 +5,14 @@ import SidebarSkeleton from "./skeletons/SidebarSkeleton";
 import { Users } from "lucide-react";
 
 const Sidebar = () => {
-  const { getUsers, users, selectedUser, setSelectedUser, isUsersLoading } = useChatStore();
+  const {
+    getUsers,
+    users,
+    selectedUser,
+    setSelectedUser,
+    isUsersLoading,
+    recentConversations,
+  } = useChatStore();
 
   const { onlineUsers } = useAuthStore();
   const [showOnlineOnly, setShowOnlineOnly] = useState(false);
@@ -14,9 +21,26 @@ const Sidebar = () => {
     getUsers();
   }, [getUsers]);
 
-  const filteredUsers = showOnlineOnly
+  const baseUsers = showOnlineOnly
     ? users.filter((user) => onlineUsers.includes(user._id))
     : users;
+
+  // Sort contacts by recent conversations cache (top 10), keep others after.
+  const recentItems = Array.isArray(recentConversations?.items)
+    ? recentConversations.items
+    : [];
+  const rank = new Map(recentItems.map((it, idx) => [String(it.otherUserId), idx]));
+  const filteredUsers = [...baseUsers].sort((a, b) => {
+    const ra = rank.has(String(a._id)) ? rank.get(String(a._id)) : 9999;
+    const rb = rank.has(String(b._id)) ? rank.get(String(b._id)) : 9999;
+    return ra - rb;
+  });
+
+  const lastPreviewByUserId = new Map(
+    recentItems
+      .filter((it) => it && it.otherUserId)
+      .map((it) => [String(it.otherUserId), it])
+  );
 
   if (isUsersLoading) return <SidebarSkeleton />;
 
@@ -44,6 +68,22 @@ const Sidebar = () => {
 
       <div className="overflow-y-auto w-full py-3">
         {filteredUsers.map((user) => (
+          (() => {
+            const prev = lastPreviewByUserId.get(String(user._id));
+            const last = prev?.lastMessage;
+            const previewText =
+              last?.isRecalled
+                ? "Tin nhắn đã bị thu hồi"
+                : last?.isDeletedForMe
+                  ? "Đã ẩn tin nhắn"
+                  : typeof last?.text === "string" && last.text.trim().length > 0
+                    ? last.text
+                    : last?.image || (Array.isArray(last?.images) && last.images.length > 0)
+                      ? "[Hình ảnh]"
+                      : last?.file
+                        ? "[Tệp]"
+                        : "";
+            return (
           <button
             key={user._id}
             onClick={() => setSelectedUser(user)}
@@ -71,10 +111,16 @@ const Sidebar = () => {
             <div className="hidden lg:block text-left min-w-0">
               <div className="font-medium truncate">{user.fullName}</div>
               <div className="text-sm text-zinc-400">
-                {onlineUsers.includes(user._id) ? "Online" : "Offline"}
+                {previewText ? (
+                  <span className="truncate block">{previewText}</span>
+                ) : (
+                  <span>{onlineUsers.includes(user._id) ? "Online" : "Offline"}</span>
+                )}
               </div>
             </div>
           </button>
+            );
+          })()
         ))}
 
         {filteredUsers.length === 0 && (
