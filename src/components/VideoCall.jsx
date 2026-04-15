@@ -3,9 +3,14 @@ import { useAuthStore } from "../store/useAuthStore";
 
 const servers = {
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: "turn:turn.oeb20412.com:443?transport=tcp",
+      username: "rushcord",
+      credential: "67696162616f",
+    },
   ],
+  iceTransportPolicy: 'all',
+  iceCandidatePoolSize: 10
 };
 
 export default function VideoCall({
@@ -32,8 +37,28 @@ export default function VideoCall({
   const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
   const [speakerSupported, setSpeakerSupported] = useState(true);
   const acceptOnceRef = useRef(false);
+  const pendingCandidatesRef = useRef([]); // RTCIceCandidateInit[]
   // const incomingCall = useAuthStore((s) => s.incomingCall);
   // const clearIncomingCall = useAuthStore((s) => s.clearIncomingCall);
+
+  const flushPendingIceCandidates = async () => {
+    const pcRef = pc.current;
+    if (!pcRef) return;
+    if (!pcRef.remoteDescription) return;
+
+    const pending = pendingCandidatesRef.current;
+    if (!pending.length) return;
+    pendingCandidatesRef.current = [];
+
+    for (const c of pending) {
+      try {
+        // null candidate means end-of-candidates; safe to ignore
+        if (c) await pcRef.addIceCandidate(new RTCIceCandidate(c));
+      } catch (err) {
+        console.error("❌ flush addIceCandidate error:", err);
+      }
+    }
+  };
 
   const refreshDevices = async () => {
     try {
@@ -166,12 +191,22 @@ export default function VideoCall({
   // =========================
   useEffect(() => {
     const handleIceCandidate = async ({ from, candidate }) => {
-      if (from !== remoteId) return;
+      // Some flows can momentarily have mismatched/empty remoteId during mount.
+      // Don't drop candidates unless we are sure they belong to another peer.
+      if (remoteId && from && from !== remoteId) return;
 
       try {
-        if (candidate && pc.current) {
-          await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
+        if (!candidate) return;
+        if (!pc.current) {
+          pendingCandidatesRef.current.push(candidate);
+          return;
         }
+        if (!pc.current.remoteDescription) {
+          pendingCandidatesRef.current.push(candidate);
+          return;
+        }
+
+        await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
       } catch (err) {
         console.error("❌ addIceCandidate error:", err);
       }
@@ -539,6 +574,7 @@ export default function VideoCall({
         await pc.current.setRemoteDescription(
           new RTCSessionDescription(propIncomingOffer),
         );
+        await flushPendingIceCandidates();
       } else {
         console.log("ℹ️ Remote offer already set; skipping setRemoteDescription");
       }
@@ -644,6 +680,7 @@ export default function VideoCall({
         await pc.current.setRemoteDescription(
           new RTCSessionDescription(answer),
         );
+        await flushPendingIceCandidates();
         setCallStatus("connected");
         console.log("✅ Remote description set, call should be connected now");
       } catch (err) {
