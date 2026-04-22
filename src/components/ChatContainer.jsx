@@ -72,14 +72,14 @@ const AudioMessage = ({ url, fileName }) => {
   const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
 
   return (
-    <div className="w-[280px] max-w-full rounded-xl border border-zinc-700 bg-zinc-900/60 px-3 py-2">
+    <div className="w-[280px] max-w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2">
       <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
 
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={toggle}
-          className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 flex items-center justify-center hover:bg-emerald-500/20 transition"
+          className="btn btn-success btn-circle btn-sm"
           aria-label={isPlaying ? "Pause audio" : "Play audio"}
           title={isPlaying ? "Tạm dừng" : "Phát"}
         >
@@ -88,16 +88,16 @@ const AudioMessage = ({ url, fileName }) => {
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Mic className="w-4 h-4 text-zinc-400 shrink-0" />
-            <div className="truncate text-sm text-zinc-100" title={safeName}>
+            <Mic className="w-4 h-4 text-base-content/60 shrink-0" />
+            <div className="truncate text-sm text-base-content" title={safeName}>
               {safeName}
             </div>
-            <div className="ml-auto text-xs text-zinc-400 tabular-nums shrink-0">
+            <div className="ml-auto text-xs text-base-content/60 tabular-nums shrink-0">
               {formatSeconds(current)} / {formatSeconds(duration)}
             </div>
           </div>
 
-          <div className="mt-2 h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
+          <div className="mt-2 h-2 w-full rounded-full bg-base-300 overflow-hidden">
             <div
               className="h-full rounded-full bg-emerald-500/70"
               style={{ width: `${pct * 100}%` }}
@@ -336,9 +336,9 @@ const ChatContainer = () => {
       {/* VIDEO CALL */}
       {isCalling && selectedConversation && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl bg-gray-900 rounded-xl shadow-2xl border border-white/10 overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
-              <h1 className="text-white text-base sm:text-lg font-semibold truncate">
+          <div className="w-full max-w-3xl bg-base-100 rounded-xl shadow-2xl border border-base-300 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-base-300">
+              <h1 className="text-base-content text-base sm:text-lg font-semibold truncate">
                 {selectedConversation?.type === "GROUP" ? (
                   <>
                     Group call:{" "}
@@ -356,7 +356,7 @@ const ChatContainer = () => {
               <button
                 type="button"
                 onClick={() => setEndSignal((n) => n + 1)}
-                className="text-gray-300 hover:text-white text-xl leading-none px-2"
+                className="text-base-content/70 hover:text-base-content text-xl leading-none px-2"
                 aria-label="Close call"
                 title="Đóng"
               >
@@ -406,9 +406,9 @@ const ChatContainer = () => {
 
       {/* INCOMING CALL */}
       {incomingCall && (
-        <div className="fixed top-4 right-4 z-60 bg-white/5 backdrop-blur p-3 rounded-lg border">
+        <div className="fixed top-4 right-4 z-60 bg-base-100/90 backdrop-blur p-3 rounded-lg border border-base-300 shadow-lg">
           <div className="flex items-center gap-3">
-            <div className="flex-1 text-white">
+            <div className="flex-1 text-base-content">
               {(() => {
                 const kind = String(incomingCall?.kind || "").toUpperCase();
                 const isGroup = kind === "GROUP";
@@ -483,7 +483,7 @@ const ChatContainer = () => {
                       roomName: incomingCall.roomName,
                     });
                 }}
-                className="bg-green-600 text-white px-3 py-1 rounded"
+                className="btn btn-success btn-sm"
               >
                 Accept
               </button>
@@ -499,7 +499,7 @@ const ChatContainer = () => {
                     });
                   clearIncomingCall();
                 }}
-                className="bg-red-600 text-white px-3 py-1 rounded"
+                className="btn btn-error btn-sm"
               >
                 Decline
               </button>
@@ -549,6 +549,9 @@ const ChatContainer = () => {
             }`}
             ref={index === messages.length - 1 ? messageEndRef : null}
           >
+            {/*
+              Note: use daisyUI chat bubble variants so bubble colors follow `data-theme`.
+            */}
             {/* AVATAR */}
             <div className="chat-image avatar">
               <div className="size-10 rounded-full border">
@@ -556,6 +559,8 @@ const ChatContainer = () => {
                   src={
                     message.senderId === authUser._id
                       ? authUser.profilePic || "/avatar.png"
+                      : String(message.senderId) === "RushCordAI"
+                        ? "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png"
                       : (() => {
                           const sender = users.find(
                             (u) => String(u._id) === String(message.senderId),
@@ -587,7 +592,12 @@ const ChatContainer = () => {
             </div>
 
             {/* MESSAGE */}
-            <div className="chat-bubble flex flex-col gap-2 relative max-w-[75%] break-words">
+            <div
+              className={[
+                "chat-bubble flex flex-col gap-2 relative max-w-[75%] break-words",
+                message.senderId === authUser._id ? "chat-bubble-primary" : "",
+              ].join(" ")}
+            >
               {!message.isRecalled &&
                 !message.isDeletedForMe &&
                 message.isEdited &&
@@ -602,13 +612,13 @@ const ChatContainer = () => {
                   </button>
                 )}
               {message.isRecalled ? (
-                <p className="italic text-gray-400">
+                <p className="italic text-base-content/60">
                   {message.senderId === authUser._id
                     ? "Bạn đã thu hồi tin nhắn với mọi người."
                     : "Tin nhắn đã bị thu hồi"}
                 </p>
               ) : message.isDeletedForMe ? (
-                <p className="italic text-gray-400">
+                <p className="italic text-base-content/60">
                   Bạn đã thu hồi tin nhắn với bản thân.
                 </p>
               ) : (
@@ -663,7 +673,7 @@ const ChatContainer = () => {
                           src={message.file}
                           controls
                           playsInline
-                          className="w-full rounded-lg border border-zinc-700 bg-black"
+                          className="w-full rounded-lg border border-base-300 bg-black"
                         />
                       </div>
                     ) : typeof message.contentType === "string" &&
@@ -677,14 +687,14 @@ const ChatContainer = () => {
                         href={message.file}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-3 bg-zinc-800 hover:bg-zinc-700 px-3 py-2 rounded-lg transition max-w-[260px]"
+                        className="flex items-center gap-3 bg-base-200 hover:bg-base-300 px-3 py-2 rounded-lg transition max-w-[260px]"
                       >
                       {/* PREVIEW */}
-                      <div className="w-12 h-12 rounded-lg border border-zinc-700 bg-zinc-900 flex flex-col items-center justify-center gap-0.5 shrink-0">
+                      <div className="w-12 h-12 rounded-lg border border-base-300 bg-base-100 flex flex-col items-center justify-center gap-0.5 shrink-0">
                         <span className="text-xl">
                           {getFileIcon(message.file)}
                         </span>
-                        <span className="text-[10px] text-zinc-400">
+                        <span className="text-[10px] text-base-content/60">
                           {(() => {
                             const name = (message.fileName || getFileName(message.file) || "").toLowerCase();
                             if (name.endsWith(".pdf")) return "PDF";
@@ -698,12 +708,12 @@ const ChatContainer = () => {
                       {/* NAME */}
                       <div className="min-w-0">
                         <div
-                          className="truncate max-w-[180px] text-sm text-zinc-100"
+                          className="truncate max-w-[180px] text-sm text-base-content"
                           title={message.fileName || getFileName(message.file)}
                         >
                           {message.fileName || getFileName(message.file)}
                         </div>
-                        <div className="text-xs text-zinc-400">Nhấn để mở</div>
+                        <div className="text-xs text-base-content/60">Nhấn để mở</div>
                       </div>
                       </a>
                     )
@@ -876,23 +886,23 @@ const ChatContainer = () => {
           role="presentation"
         >
           <div
-            className="bg-zinc-900 rounded-xl w-full max-w-md border border-zinc-700 shadow-xl"
+            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="recall-dialog-title"
           >
-            <div className="flex justify-between items-start gap-3 p-4 border-b border-zinc-800">
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-base-300">
               <h2
                 id="recall-dialog-title"
-                className="text-white font-semibold text-lg pr-2"
+                className="text-base-content font-semibold text-lg pr-2"
               >
                 Thu hồi tin nhắn
               </h2>
               <button
                 type="button"
                 onClick={() => setRecallPromptMessage(null)}
-                className="text-zinc-400 hover:text-white shrink-0 text-xl leading-none"
+                className="text-base-content/60 hover:text-base-content shrink-0 text-xl leading-none"
                 aria-label="Đóng"
               >
                 ✕
@@ -901,24 +911,24 @@ const ChatContainer = () => {
             <div className="p-4 space-y-3">
               <button
                 type="button"
-                className="w-full text-left rounded-lg border border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 p-4 transition-colors"
+                className="w-full text-left rounded-lg border border-base-300 bg-base-200 hover:bg-base-300 p-4 transition-colors"
                 onClick={async () => {
                   const id = recallPromptMessage._id;
                   setRecallPromptMessage(null);
                   await recallMessage(id);
                 }}
               >
-                <div className="text-white font-medium mb-1">
+                <div className="text-base-content font-medium mb-1">
                   Thu hồi với mọi người
                 </div>
-                <p className="text-sm text-zinc-400 leading-snug">
+                <p className="text-sm text-base-content/60 leading-snug">
                   Tin nhắn này sẽ bị thu hồi với mọi người trong đoạn chat.
                 </p>
               </button>
               <button
                 type="button"
                 disabled={recallPromptMessage.isDeletedForMe}
-                className="w-full text-left rounded-lg border border-zinc-700 bg-zinc-800/60 hover:bg-zinc-800 p-4 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-zinc-800/60"
+                className="w-full text-left rounded-lg border border-base-300 bg-base-200 hover:bg-base-300 p-4 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={async () => {
                   if (recallPromptMessage.isDeletedForMe) return;
                   const id = recallPromptMessage._id;
@@ -926,10 +936,10 @@ const ChatContainer = () => {
                   await recallMessageMe(id);
                 }}
               >
-                <div className="text-white font-medium mb-1">
+                <div className="text-base-content font-medium mb-1">
                   Thu hồi với bạn
                 </div>
-                <p className="text-sm text-zinc-400 leading-snug">
+                <p className="text-sm text-base-content/60 leading-snug">
                   Chúng tôi sẽ gỡ tin nhắn này ở phía bạn. Những người khác
                   trong đoạn chat vẫn có thể xem được.
                 </p>
@@ -941,13 +951,13 @@ const ChatContainer = () => {
 
       {showForwardModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 rounded-lg w-[300px] max-h-[400px] overflow-y-auto p-4">
+          <div className="bg-base-100 rounded-lg w-[300px] max-h-[400px] overflow-y-auto p-4 border border-base-300 shadow-xl">
             {/* HEADER */}
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-white font-semibold">Chọn người nhận</h2>
+              <h2 className="text-base-content font-semibold">Chọn người nhận</h2>
               <button
                 onClick={() => setShowForwardModal(false)}
-                className="text-gray-400 hover:text-white"
+                className="text-base-content/60 hover:text-base-content"
               >
                 ✕
               </button>
@@ -959,13 +969,13 @@ const ChatContainer = () => {
                 <div
                   key={user._id}
                   onClick={() => handleSelectUser(user._id)}
-                  className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-zinc-800"
+                  className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-base-200"
                 >
                   <img
                     src={user.profilePic || "/avatar.png"}
                     className="w-8 h-8 rounded-full"
                   />
-                  <span className="text-white">{user.fullName}</span>
+                  <span className="text-base-content">{user.fullName}</span>
                 </div>
               ))}
             </div>
@@ -981,23 +991,23 @@ const ChatContainer = () => {
           role="presentation"
         >
           <div
-            className="bg-zinc-900 rounded-xl w-full max-w-2xl border border-zinc-700 shadow-xl"
+            className="bg-base-100 rounded-xl w-full max-w-2xl border border-base-300 shadow-xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="history-dialog-title"
           >
-            <div className="flex justify-between items-start gap-3 p-4 border-b border-zinc-800">
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-base-300">
               <h2
                 id="history-dialog-title"
-                className="text-white font-semibold text-lg pr-2"
+                className="text-base-content font-semibold text-lg pr-2"
               >
                 Lịch sử chỉnh sửa
               </h2>
               <button
                 type="button"
                 onClick={() => setHistoryMessage(null)}
-                className="text-zinc-400 hover:text-white shrink-0 text-xl leading-none"
+                className="text-base-content/60 hover:text-base-content shrink-0 text-xl leading-none"
                 aria-label="Đóng"
               >
                 ✕
@@ -1005,9 +1015,9 @@ const ChatContainer = () => {
             </div>
 
             <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
-                <div className="text-xs text-zinc-400 mb-1">Nội dung hiện tại</div>
-                <div className="text-zinc-100 whitespace-pre-wrap break-words">
+              <div className="rounded-lg border border-base-300 bg-base-200 p-3">
+                <div className="text-xs text-base-content/60 mb-1">Nội dung hiện tại</div>
+                <div className="text-base-content whitespace-pre-wrap break-words">
                   {historyMessage.text || ""}
                 </div>
               </div>
@@ -1028,26 +1038,26 @@ const ChatContainer = () => {
                       return (
                         <div
                           key={`${h?.editedAt || "edit"}-${idx}`}
-                          className="rounded-lg border border-zinc-800 bg-zinc-950/30 p-3"
+                          className="rounded-lg border border-base-300 bg-base-200/60 p-3"
                         >
-                          <div className="text-xs text-zinc-400 mb-2">
+                          <div className="text-xs text-base-content/60 mb-2">
                             {when}
                           </div>
                           <div className="grid gap-2">
                             <div>
-                              <div className="text-xs text-zinc-500 mb-1">
+                              <div className="text-xs text-base-content/50 mb-1">
                                 Trước
                               </div>
-                              <div className="text-zinc-200 whitespace-pre-wrap break-words">
+                              <div className="text-base-content whitespace-pre-wrap break-words">
                                 {prev}
                               </div>
                             </div>
                             {next != null && (
                               <div>
-                                <div className="text-xs text-zinc-500 mb-1">
+                                <div className="text-xs text-base-content/50 mb-1">
                                   Sau
                                 </div>
-                                <div className="text-zinc-200 whitespace-pre-wrap break-words">
+                                <div className="text-base-content whitespace-pre-wrap break-words">
                                   {next}
                                 </div>
                               </div>
@@ -1058,7 +1068,7 @@ const ChatContainer = () => {
                     })}
                 </div>
               ) : (
-                <div className="text-sm text-zinc-400">
+                <div className="text-sm text-base-content/60">
                   Không có lịch sử chỉnh sửa.
                 </div>
               )}

@@ -9,7 +9,8 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   const [text, setText] = useState("");
   const [previews, setPreviews] = useState([]);
   const fileInputRef = useRef(null);
-  const { sendMessage, editMessageText } = useChatStore();
+  const { sendMessage, editMessageText, aiMode, setAiMode, aiChatInConversation, isAiBusy } =
+    useChatStore();
   const [showEmoji, setShowEmoji] = useState(false);
   const [files, setFiles] = useState([]);
   const socket = useAuthStore((s) => s.socket);
@@ -377,6 +378,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
 
     try {
       const trimmed = text.trim();
+      const isRushCordTrigger = /^@RushCord\b/i.test(trimmed);
       if (typingActiveRef.current) {
         emitTyping(false);
         typingActiveRef.current = false;
@@ -387,6 +389,15 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         if (typeof onCancelEdit === "function") onCancelEdit();
         return;
       }
+
+      // AI mode: only for plain text (no attachments)
+      if (isRushCordTrigger && files.length === 0) {
+        const prompt = trimmed.replace(/^@RushCord\b/i, "").trim();
+        await aiChatInConversation(prompt);
+        setText("");
+        return;
+      }
+
       if (files.length === 0) {
         await sendMessage({ text: trimmed });
       } else {
@@ -521,7 +532,13 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
           <input
             type="text"
             className="w-full input input-bordered rounded-lg input-sm sm:input-md"
-            placeholder={editingMessage ? "Edit message..." : "Type a message..."}
+            placeholder={
+              editingMessage
+                ? "Edit message..."
+                : aiMode
+                  ? "Chat với RushCordAI... (gõ @RushCord <câu hỏi>)"
+                  : "Type a message..."
+            }
             value={text}
             onChange={(e) => {
               const next = e.target.value;
@@ -529,11 +546,14 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
 
               const trimmed = next.trim();
               const hasText = trimmed.length > 0;
+              const isRushCord = /^@RushCord\b/i.test(trimmed);
+              setAiMode(isRushCord);
 
               // Debounce + throttle to avoid spamming socket on each keystroke.
               if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
 
               if (editingMessage) return;
+              if (isRushCord) return;
               if (!hasText) {
                 if (typingActiveRef.current) {
                   emitTyping(false);
@@ -611,7 +631,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         <button
           type="submit"
           className="btn btn-sm btn-circle"
-          disabled={isRecording || (!text.trim() && files.length === 0)}
+          disabled={isAiBusy || isRecording || (!text.trim() && files.length === 0)}
         >
           <Send size={22} />
         </button>
