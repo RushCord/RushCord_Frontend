@@ -1,9 +1,11 @@
 import React from "react";
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare, User } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
 import AuthImagePattern from "../components/AuthImagePattern";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
+import logoImg from "../assets/logo.png";
 
 export const SignUpPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -13,46 +15,59 @@ export const SignUpPage = () => {
     password: "",
   });
 
-  const { signup, isSigningUp } = useAuthStore();
+  const navigate = useNavigate();
+  const { register, isSigningUp } = useAuthStore();
 
   const validateForm = () => {
     if (!formData.fullName.trim()) {
-        return toast.error("Full name is required");
+      toast.error("Full name is required");
+      return false;
     }
     if (!formData.email.trim()) {
-        return toast.error("Email is required");
+      toast.error("Email is required");
+      return false;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(formData.email)) {
-        return toast.error("Please enter a valid email address");
+      toast.error("Please enter a valid email address");
+      return false;
     }
     if (!formData.password) {
-        return toast.error("Password is required");
+      toast.error("Password is required");
+      return false;
     }
-    if (formData.password.length < 6) {
-        return toast.error("Password must be at least 6 characters long");
+    if (formData.password.length < 8) {
+      toast.error("Password must be at least 8 characters (Cognito policy)");
+      return false;
     }
     return true;
-
-        
   };
-  const handleSubmit = (e) => {
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const success = validateForm();
-    if(success) {
-        signup(formData);
+    if (!validateForm()) return;
+    try {
+      await register({
+        email: formData.email.trim(),
+        password: formData.password,
+        displayName: formData.fullName.trim(),
+      });
+      navigate("/confirm-email", {
+        replace: false,
+        state: { email: formData.email.trim() },
+      });
+    } catch {
+      /* toast in store */
     }
   };
   return (
-    <div className="min-h-screeen grid lg:grid-cols-2">
-      {/* Left side */}
-      <div className="flex flex-col justify-center items-center p-6 sm:p-12">
-        <div className="w-full max-w-md space-y-8">
-          {/* Logo */}
+    <div className="min-h-screen bg-[var(--discord-app)] lg:grid lg:grid-cols-2">
+      <div className="flex items-center justify-center p-6 sm:p-12">
+        <div className="discord-card w-full max-w-md p-8">
           <div className="text-center mb-8">
             <div className="flex flex-col items-center gap-2 group">
-              <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                <MessageSquare className="size-6 text-primary" />
+              <div className="flex size-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25">
+                <img src={logoImg} alt="RushCord logo" className="size-8 rounded-lg object-cover" />
               </div>
               <h1 className="text-2xl font-bold mt-2">Create Account</h1>
               <p className="text-base-content/60">
@@ -72,7 +87,7 @@ export const SignUpPage = () => {
                 </div>
                 <input
                   type="text"
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="John Doe"
                   value={formData.fullName}
                   onChange={(e) =>
@@ -92,7 +107,7 @@ export const SignUpPage = () => {
                 </div>
                 <input
                   type="email"
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) =>
@@ -112,7 +127,7 @@ export const SignUpPage = () => {
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) =>
@@ -131,11 +146,14 @@ export const SignUpPage = () => {
                   )}
                 </button>
               </div>
+              <p className="text-xs text-base-content/50 mt-1">
+                Use at least 8 characters with uppercase, lowercase, number, and symbol (Cognito).
+              </p>
             </div>
 
             <button
               type="submit"
-              className="btn btn-primary w-full"
+              className="btn btn-primary h-12 w-full rounded-lg border-0"
               disabled={isSigningUp}
             >
               {isSigningUp ? (
@@ -160,7 +178,6 @@ export const SignUpPage = () => {
         </div>
       </div>
 
-      {/* Right side */}
       <AuthImagePattern
         title="Join our community"
         subtitle="Connect with friends, share moments, and stay in touch with your loved ones."

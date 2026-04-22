@@ -1,571 +1,441 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  createLocalAudioTrack,
+  createLocalVideoTrack,
+  Room,
+  RoomEvent,
+  Track,
+} from "livekit-client";
+import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "../store/useAuthStore";
 
-const servers = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-  ],
-};
-
 export default function VideoCall({
-  myId,
+  myId: _myId,
   remoteId,
-  incomingOffer: propIncomingOffer,
+  roomName,
+  autoStart = false,
+  forceEndSignal = 0,
   onEnd,
 }) {
+  void _myId;
   const localVideo = useRef(null);
   const remoteVideo = useRef(null);
+  const remoteAudio = useRef(null);
 
-  const pc = useRef(null);
-  const [stream, setStream] = useState(null);
-  const [callStatus, setCallStatus] = useState("idle"); // idle, calling, connected, ended
-  const [error, setError] = useState(null);
   const socket = useAuthStore((s) => s.socket);
-  const [incomingCaller, setIncomingCaller] = useState(null);
-  const [incomingOffer, setIncomingOffer] = useState(null);
-  // const incomingCall = useAuthStore((s) => s.incomingCall);
-  // const clearIncomingCall = useAuthStore((s) => s.clearIncomingCall);
 
-  // =========================
-  // INIT PEER
-  // =========================
-  useEffect(() => {
-    // Only create peer connection if we don't have incoming offer
-    // For incoming calls, we'll create it in acceptCall
-    if (!propIncomingOffer && !pc.current) {
-      pc.current = new RTCPeerConnection(servers);
+  const room = useMemo(() => new Room(), []);
+  const [callStatus, setCallStatus] = useState("idle"); // idle, connecting, connected, ended
+  const [error, setError] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
 
-      // nhận video remote
-      pc.current.ontrack = (event) => {
-        console.log("📺 Received remote stream");
-        let remoteStream = event.streams?.[0];
-        if (!remoteStream && event.track) {
-          remoteStream = new MediaStream();
-          remoteStream.addTrack(event.track);
-        }
-        if (remoteVideo.current && remoteStream) {
-          remoteVideo.current.srcObject = remoteStream;
-        }
-      };
+  const [cameras, setCameras] = useState([]); // [{ deviceId, label }]
+  const [microphones, setMicrophones] = useState([]); // [{ deviceId, label }]
+  const [speakers, setSpeakers] = useState([]); // [{ deviceId, label }]
+  const [selectedCameraId, setSelectedCameraId] = useState("");
+  const [selectedMicId, setSelectedMicId] = useState("");
+  const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
+  const [speakerSupported, setSpeakerSupported] = useState(true);
 
-      // gửi ICE
-      pc.current.onicecandidate = (event) => {
-        if (event.candidate && socket) {
-          socket.emit("iceCandidate", {
-            to: remoteId,
-            from: myId,
-            candidate: event.candidate,
-          });
-        }
-      };
-
-      // theo dõi trạng thái connection
-      pc.current.oniceconnectionstatechange = () => {
-        console.log("🌐 ICE Connection State:", pc.current.iceConnectionState);
-        if (
-          pc.current.iceConnectionState === "connected" ||
-          pc.current.iceConnectionState === "completed"
-        ) {
-          setCallStatus("connected");
-        }
-        if (
-          pc.current.iceConnectionState === "disconnected" ||
-          pc.current.iceConnectionState === "failed" ||
-          pc.current.iceConnectionState === "closed"
-        ) {
-          setCallStatus("ended");
-          endCall();
-        }
-      };
-
-      pc.current.onconnectionstatechange = () => {
-        console.log("📡 Connection State:", pc.current.connectionState);
-      };
-    }
-
-    return () => {
-      try {
-        pc.current?.close();
-      } catch (e) {}
-      pc.current = null;
-    };
-  }, [propIncomingOffer]); // Only run when propIncomingOffer changes
-
-  // =========================
-  // LISTEN ICE CANDIDATES
-  // =========================
-  useEffect(() => {
-    const handleIceCandidate = async ({ from, candidate }) => {
-      if (from !== remoteId) return;
-
-      try {
-        if (candidate && pc.current) {
-          await pc.current.addIceCandidate(new RTCIceCandidate(candidate));
-        }
-      } catch (err) {
-        console.error("❌ addIceCandidate error:", err);
-      }
-    };
-
-    if (socket) {
-      socket.on("iceCandidate", handleIceCandidate);
-
-      return () => {
-        socket.off("iceCandidate", handleIceCandidate);
-      };
-    }
-
-    return () => {};
-  }, [remoteId, socket]);
-
-  // =========================
-  // START MEDIA
-  // =========================
-  const startMedia = async () => {
+  const refreshDevices = async () => {
     try {
-      if (stream) return; // Media đã được khởi động
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices
+        .filter((d) => d.kind === "videoinput")
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Camera ${idx + 1}`,
+        }));
+      setCameras(cams);
+      if (!selectedCameraId && cams[0]?.deviceId) setSelectedCameraId(cams[0].deviceId);
 
-      const localStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: true,
-      });
+      const mics = devices
+        .filter((d) => d.kind === "audioinput")
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Microphone ${idx + 1}`,
+        }));
+      setMicrophones(mics);
+      if (!selectedMicId && mics[0]?.deviceId) setSelectedMicId(mics[0].deviceId);
 
-      console.log("🎥 Got local stream");
-
-      if (localVideo.current) {
-        localVideo.current.srcObject = localStream;
-      }
-
-      setStream(localStream);
-
-      // Thêm tracks vào peer connection nếu đã tồn tại
-      if (pc.current) {
-        localStream.getTracks().forEach((track) => {
-          pc.current.addTrack(track, localStream);
-        });
-      }
-
-      return localStream;
-    } catch (err) {
-      const errorMsg = `❌ getUserMedia error: ${err.message}`;
-      console.error(errorMsg);
-      setError(errorMsg);
-      throw err;
+      const outs = devices
+        .filter((d) => d.kind === "audiooutput")
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Speaker ${idx + 1}`,
+        }));
+      setSpeakers(outs);
+      if (!selectedSpeakerId && outs[0]?.deviceId) setSelectedSpeakerId(outs[0].deviceId);
+    } catch {
+      // ignore
     }
   };
 
-  // =========================
-  // CALL USER (INITIATE)
-  // =========================
-  const callUser = async () => {
-    console.log("📞 callUser called for remoteId:", remoteId);
+  const applySpeaker = async (deviceId) => {
     try {
-      setCallStatus("calling");
-
-      // Bắt đầu media trước khi tạo offer
-      console.log("📹 Starting media...");
-      await startMedia();
-
-      // Chờ RTCPeerConnection sẵn sàng
-      if (!pc.current || pc.current.signalingState === "closed") {
-        throw new Error("RTCPeerConnection not ready");
-      }
-
-      console.log("📤 Creating offer...");
-      const offer = await pc.current.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-
-      console.log("📤 Setting local description...");
-      await pc.current.setLocalDescription(offer);
-      console.log(
-        "📡 Signaling state after setLocalDescription:",
-        pc.current.signalingState,
-      );
-
-      console.log("📤 Sending offer to", remoteId);
-
-      if (!socket) {
-        const msg = "No signaling socket connected";
-        console.error(msg);
-        setError(msg);
-        setCallStatus("idle");
+      const el = remoteAudio.current || remoteVideo.current;
+      if (!el) return;
+      const fn = el.setSinkId;
+      if (typeof fn !== "function") {
+        setSpeakerSupported(false);
         return;
       }
-
-      socket.emit("callUser", {
-        to: remoteId,
-        from: myId,
-        offer: offer,
-      });
-      console.log("✅ Offer sent, waiting for answer...");
-    } catch (err) {
-      const errorMsg = `❌ callUser error: ${err.message}`;
-      console.error(errorMsg);
-      setError(errorMsg);
-      setCallStatus("idle");
+      setSpeakerSupported(true);
+      await fn.call(el, deviceId || "");
+      setSelectedSpeakerId(deviceId || "");
+    } catch (e) {
+      setSpeakerSupported(false);
+      console.error("setSinkId failed:", e);
     }
   };
 
-  // If there is a prop incomingOffer, auto-accept when component mounts
-  useEffect(() => {
-    console.log("🔄 useEffect auto-accept check:", {
-      propIncomingOffer: !!propIncomingOffer,
-      remoteId,
-    });
-    if (propIncomingOffer && remoteId) {
-      console.log("🔄 Auto-accepting incoming call from prop");
-      // auto-accept when VideoCall mounted with offer
-      (async () => {
-        try {
-          await acceptCall();
-        } catch (e) {
-          console.error("Auto-accept failed:", e);
-        }
-      })();
-    }
-  }, [propIncomingOffer, remoteId]);
+  const switchCamera = async (deviceId) => {
+    if (!deviceId) return;
+    setSelectedCameraId(deviceId);
+    if (callStatus !== "connected") return;
+    try {
+      const pub = room.localParticipant
+        .getTrackPublications()
+        .find((p) => p.track?.kind === Track.Kind.Video);
+      const prevTrack = pub?.track || null;
 
-  // Accept incoming call: create answer and send
-  const acceptCall = async () => {
-    console.log(
-      "🎯 acceptCall called with propIncomingOffer:",
-      !!propIncomingOffer,
-    );
-    if (!propIncomingOffer) {
-      console.error("❌ No propIncomingOffer to accept");
+      const nextTrack = await createLocalVideoTrack({
+        deviceId: { exact: deviceId },
+        resolution: { width: 1280, height: 720 },
+      });
+
+      await room.localParticipant.publishTrack(nextTrack);
+      if (localVideo.current) nextTrack.attach(localVideo.current);
+
+      if (pub) {
+        try {
+          await room.localParticipant.unpublishTrack(pub.track, true);
+        } catch {
+          // ignore
+        }
+      } else if (prevTrack) {
+        try {
+          await room.localParticipant.unpublishTrack(prevTrack, true);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (e) {
+      console.error("switchCamera failed:", e);
+      setError(`❌ switchCamera error: ${e?.message || String(e)}`);
+    }
+  };
+
+  const switchMicrophone = async (deviceId) => {
+    if (!deviceId) return;
+    setSelectedMicId(deviceId);
+    if (callStatus !== "connected") return;
+    try {
+      const pub = room.localParticipant
+        .getTrackPublications()
+        .find((p) => p.track?.kind === Track.Kind.Audio);
+      const prevTrack = pub?.track || null;
+
+      const nextTrack = await createLocalAudioTrack({
+        deviceId: { exact: deviceId },
+      });
+
+      await room.localParticipant.publishTrack(nextTrack);
+
+      if (pub) {
+        try {
+          await room.localParticipant.unpublishTrack(pub.track, true);
+        } catch {
+          // ignore
+        }
+      } else if (prevTrack) {
+        try {
+          await room.localParticipant.unpublishTrack(prevTrack, true);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (e) {
+      console.error("switchMicrophone failed:", e);
+      setError(`❌ switchMicrophone error: ${e?.message || String(e)}`);
+    }
+  };
+
+  const connectToRoom = async () => {
+    if (!roomName) {
+      setError("Missing roomName");
       return;
     }
-
     try {
-      console.log("📹 Starting media for accept...");
-      const localStream = await startMedia();
+      setError(null);
+      setCallStatus("connecting");
 
-      // Reset peer connection if it's in wrong state
-      if (pc.current && pc.current.signalingState !== "stable") {
-        console.log(
-          "🔄 Resetting peer connection, current state:",
-          pc.current.signalingState,
-        );
-        pc.current.close();
-        pc.current = null;
+      const { data } = await axiosInstance.post("/livekit/token", { roomName });
+      const { url, token } = data || {};
+      if (!url || !token) throw new Error("Invalid token response");
+
+      await room.connect(url, token);
+      await room.localParticipant.enableCameraAndMicrophone();
+
+      // attach local preview
+      const camPub = room.localParticipant.getTrackPublications().find((p) => p.track?.kind === Track.Kind.Video);
+      if (camPub?.track && localVideo.current) {
+        camPub.track.attach(localVideo.current);
       }
 
-      if (!pc.current) {
-        pc.current = new RTCPeerConnection(servers);
-
-        // nhận video remote
-        pc.current.ontrack = (event) => {
-          console.log("📺 Received remote stream");
-          let remoteStream = event.streams?.[0];
-          if (!remoteStream && event.track) {
-            remoteStream = new MediaStream();
-            remoteStream.addTrack(event.track);
-          }
-          if (remoteVideo.current && remoteStream) {
-            remoteVideo.current.srcObject = remoteStream;
-          }
-        };
-
-        // gửi ICE
-        pc.current.onicecandidate = (event) => {
-          if (event.candidate && socket) {
-            socket.emit("iceCandidate", {
-              to: remoteId,
-              from: myId,
-              candidate: event.candidate,
-            });
-          }
-        };
-
-        // theo dõi trạng thái connection
-        pc.current.oniceconnectionstatechange = () => {
-          console.log(
-            "🌐 ICE Connection State:",
-            pc.current.iceConnectionState,
-          );
-          if (
-            pc.current.iceConnectionState === "connected" ||
-            pc.current.iceConnectionState === "completed"
-          ) {
-            setCallStatus("connected");
-          }
-          if (
-            pc.current.iceConnectionState === "disconnected" ||
-            pc.current.iceConnectionState === "failed" ||
-            pc.current.iceConnectionState === "closed"
-          ) {
-            setCallStatus("ended");
-            endCall();
-          }
-        };
-
-        pc.current.onconnectionstatechange = () => {
-          console.log("📡 Connection State:", pc.current.connectionState);
-        };
-
-        // Add local stream tracks to peer connection
-        if (localStream) {
-          localStream.getTracks().forEach((track) => {
-            pc.current.addTrack(track, localStream);
-          });
-        }
-      }
-
-      if (pc.current.signalingState === "closed") {
-        throw new Error("RTCPeerConnection is closed");
-      }
-
-      console.log("📥 Setting remote description...");
-      await pc.current.setRemoteDescription(
-        new RTCSessionDescription(propIncomingOffer),
-      );
-      console.log(
-        "📥 Remote description set, signaling state:",
-        pc.current.signalingState,
-      );
-
-      console.log("📤 Creating answer...");
-      if (pc.current.signalingState !== "have-remote-offer") {
-        console.error(
-          "❌ Invalid signaling state for createAnswer:",
-          pc.current.signalingState,
-        );
-        throw new Error(
-          `Cannot create answer in state: ${pc.current.signalingState}`,
-        );
-      }
-      const answer = await pc.current.createAnswer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-
-      console.log("📤 Setting local description...");
-      await pc.current.setLocalDescription(answer);
-
-      if (!socket) throw new Error("No signaling socket");
-
-      console.log("📤 Sending answer to", remoteId); // use remoteId as caller
-      socket.emit("answerCall", {
-        to: remoteId,
-        from: myId,
-        answer,
-      });
-
-      setCallStatus("calling"); // Đợi ICE state chuyển sang connected mới set connected
-      console.log("✅ Accept call completed, waiting for ICE connection...");
-    } catch (err) {
-      const errorMsg = `❌ acceptCall error: ${err.message}`;
-      console.error(errorMsg);
-      setError(errorMsg);
+      await refreshDevices();
+      setCallStatus("connected");
+    } catch (e) {
+      console.error("LiveKit connect error:", e);
+      setError(`❌ LiveKit connect error: ${e?.message || String(e)}`);
       setCallStatus("idle");
     }
   };
 
-  const declineCall = () => {
-    if (socket && incomingCaller) {
-      socket.emit("hangup", { to: incomingCaller, from: myId });
-    }
-    setIncomingCaller(null);
-    setIncomingOffer(null);
-    setCallStatus("idle");
-  };
-
-  // =========================
-  // LISTEN CALL ANSWERED
-  // =========================
-  useEffect(() => {
-    const handleCallAnswered = async ({ from, answer }) => {
-      console.log("✅ Call answered from", from, "with answer:", !!answer);
-      console.log("📡 Current signaling state:", pc.current?.signalingState);
-
-      if (from !== remoteId) {
-        console.log("❌ Answer from wrong user:", from, "expected:", remoteId);
-        return;
+  const endCall = ({ sendHangup = true } = {}) => {
+    try {
+      if (sendHangup && socket && remoteId && roomName) {
+        socket.emit("hangup", { to: remoteId, roomName });
       }
-
-      try {
-        if (!pc.current || pc.current.signalingState === "closed") {
-          throw new Error("RTCPeerConnection not ready");
-        }
-
-        if (pc.current.signalingState !== "have-local-offer") {
-          console.error(
-            "❌ Invalid signaling state for setRemoteDescription:",
-            pc.current.signalingState,
-          );
-          throw new Error(
-            `Cannot set remote answer in state: ${pc.current.signalingState}`,
-          );
-        }
-
-        console.log("📥 Setting remote description from answer...");
-        await pc.current.setRemoteDescription(
-          new RTCSessionDescription(answer),
-        );
-        setCallStatus("connected");
-        console.log("✅ Remote description set, call should be connected now");
-      } catch (err) {
-        const errorMsg = `❌ setRemoteDescription error: ${err.message}`;
-        console.error(errorMsg);
-        setError(errorMsg);
-      }
-    };
-
-    if (socket) {
-      console.log("👂 Listening for callAnswered events");
-      socket.on("callAnswered", handleCallAnswered);
-
-      return () => {
-        socket.off("callAnswered", handleCallAnswered);
-      };
+    } catch {
+      // ignore
     }
 
-    return () => {};
-  }, [remoteId, myId]);
-
-  // =========================
-  // LISTEN HANGUP FROM REMOTE
-  // =========================
-  useEffect(() => {
-    const handleHangup = ({ from }) => {
-      if (from !== remoteId) return;
-      // remote ended the call
-      endCall();
-    };
-
-    if (socket) {
-      socket.on("hangup", handleHangup);
-      return () => socket.off("hangup", handleHangup);
+    try {
+      room.disconnect();
+    } catch {
+      // ignore
     }
 
-    return () => {};
-  }, [remoteId, socket]);
-
-  // =========================
-  // CALL INITIATED AUTOMATICALLY
-  // =========================
-  useEffect(() => {
-    // Khi component mount và có remoteId, tự động gọi (chỉ khi không có incomingOffer)
-    if (remoteId && callStatus === "idle" && !propIncomingOffer) {
-      const timer = setTimeout(() => {
-        callUser();
-      }, 500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [remoteId, callStatus, propIncomingOffer]);
-
-  // =========================
-  // END CALL
-  // =========================
-  const endCall = () => {
-    console.log("❌ Ending call");
-
-    if (socket && remoteId) {
-      console.log("🔚 Emitting hangup to remote", remoteId);
-      socket.emit("hangup", { to: remoteId, from: myId });
-    }
-
-    // Đóng peer connection
-    if (pc.current && pc.current.signalingState !== "closed") {
-      pc.current.close();
-    }
-
-    // Dừng tất cả tracks
-    stream?.getTracks().forEach((track) => {
-      track.stop();
-    });
-
-    // Xóa video elements
-    if (localVideo.current) localVideo.current.srcObject = null;
-    if (remoteVideo.current) remoteVideo.current.srcObject = null;
-
-    setStream(null);
-    setError(null);
-
-    // reset peer
-    pc.current = null;
-
-    if (callStatus !== "ended") setCallStatus("ended");
+    setCallStatus("ended");
     onEnd && onEnd();
   };
 
+  useEffect(() => {
+    const onSubscribed = (track) => {
+      if (track.kind === Track.Kind.Video && remoteVideo.current) {
+        track.attach(remoteVideo.current);
+      }
+      if (track.kind === Track.Kind.Audio && remoteAudio.current) {
+        track.attach(remoteAudio.current);
+        if (selectedSpeakerId) applySpeaker(selectedSpeakerId);
+      }
+    };
+
+    const onUnsubscribed = (track) => {
+      try {
+        track.detach();
+      } catch {
+        // ignore
+      }
+    };
+
+    room.on(RoomEvent.TrackSubscribed, onSubscribed);
+    room.on(RoomEvent.TrackUnsubscribed, onUnsubscribed);
+
+    return () => {
+      room.off(RoomEvent.TrackSubscribed, onSubscribed);
+      room.off(RoomEvent.TrackUnsubscribed, onUnsubscribed);
+      try {
+        room.disconnect();
+      } catch {
+        // ignore
+      }
+    };
+  }, [room]);
+
+  useEffect(() => {
+    const handleHangup = ({ from, roomName: rn }) => {
+      if (from !== remoteId) return;
+      if (roomName && rn && rn !== roomName) return;
+      endCall({ sendHangup: false });
+    };
+
+    if (!socket) return () => {};
+    socket.on("hangup", handleHangup);
+    return () => socket.off("hangup", handleHangup);
+  }, [socket, remoteId, roomName]);
+
+  useEffect(() => {
+    if (!autoStart) return;
+    if (callStatus !== "idle") return;
+    if (!roomName) return;
+    connectToRoom();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, roomName]);
+
+  useEffect(() => {
+    refreshDevices();
+    const handler = () => refreshDevices();
+    try {
+      navigator.mediaDevices?.addEventListener?.("devicechange", handler);
+    } catch {
+      // ignore
+    }
+    return () => {
+      try {
+        navigator.mediaDevices?.removeEventListener?.("devicechange", handler);
+      } catch {
+        // ignore
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!selectedSpeakerId) return;
+    applySpeaker(selectedSpeakerId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSpeakerId]);
+
+  useEffect(() => {
+    if (!forceEndSignal) return;
+    endCall({ sendHangup: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceEndSignal]);
+
   return (
-    <div className="w-full max-w-2xl bg-gray-900 rounded-lg p-4">
-      <h2 className="text-white text-lg font-bold mb-3 flex items-center gap-2">
-        <span>📹</span>
+    <div className="w-full rounded-2xl border border-white/10 bg-[var(--discord-panel)] p-4">
+      <h2 className="mb-4 flex items-center gap-3 text-xl font-bold lg:text-2xl">
         <span>Video Call</span>
-        <span
-          className={`ml-auto text-sm px-2 py-1 rounded ${
-            callStatus === "idle"
-              ? "bg-gray-700"
-              : callStatus === "calling"
-                ? "bg-yellow-600"
+        <span className="ml-auto flex items-center gap-2">
+          <span
+            className={`rounded-lg px-3 py-1.5 text-base ${
+              callStatus === "idle"
+                ? "bg-white/10"
+                : callStatus === "connecting"
+                  ? "bg-yellow-600"
+                  : callStatus === "connected"
+                    ? "bg-green-600"
+                    : "bg-red-600"
+            }`}
+          >
+            {callStatus === "idle"
+              ? "Idle"
+              : callStatus === "connecting"
+                ? "Connecting..."
                 : callStatus === "connected"
-                  ? "bg-green-600"
-                  : "bg-red-600"
-          }`}
-        >
-          {callStatus === "idle"
-            ? "Idle"
-            : callStatus === "calling"
-              ? "Calling..."
-              : callStatus === "connected"
-                ? "Connected"
-                : "Ended"}
+                  ? "Connected"
+                  : "Ended"}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setShowSettings((v) => !v)}
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-base hover:bg-white/10"
+          >
+            Settings
+          </button>
+
+          <button
+            type="button"
+            onClick={endCall}
+            className="rounded-lg bg-red-600 px-4 py-2 text-base text-white hover:bg-red-700"
+          >
+            End
+          </button>
         </span>
       </h2>
 
       {error && (
-        <div className="mb-3 bg-red-900/50 text-red-200 p-2 rounded text-sm">
-          ⚠️ {error}
+        <div className="mb-4 rounded-lg bg-red-900/50 p-3 text-base text-red-200">
+          {error}
         </div>
       )}
 
-      <div className="mb-3 flex gap-2">
-        <button
-          onClick={callUser}
-          disabled={
-            callStatus === "calling" || callStatus === "connected" || !stream
-          }
-          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-        >
-          <span>📞</span>
-          {callStatus === "connected" ? "Connected" : "Call"}
-        </button>
+      {showSettings && (
+        <div className="mb-4 space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-base-content/60">Camera</label>
+              <select
+                value={selectedCameraId}
+                onChange={(e) => switchCamera(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+              >
+                {cameras.length === 0 ? (
+                  <option value="">No camera</option>
+                ) : (
+                  cameras.map((c) => (
+                    <option key={c.deviceId} value={c.deviceId}>
+                      {c.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
 
-        <button
-          onClick={endCall}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-        >
-          <span>❌</span>
-          End
-        </button>
-      </div>
+            <div>
+              <label className="mb-1 block text-xs text-base-content/60">Mic</label>
+              <select
+                value={selectedMicId}
+                onChange={(e) => switchMicrophone(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+              >
+                {microphones.length === 0 ? (
+                  <option value="">No microphone</option>
+                ) : (
+                  microphones.map((m) => (
+                    <option key={m.deviceId} value={m.deviceId}>
+                      {m.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-black rounded-lg overflow-hidden">
-          <p className="text-white text-xs p-2 bg-gray-800">You</p>
+            <div>
+              <label className="mb-1 block text-xs text-base-content/60">Speaker</label>
+              <select
+                value={selectedSpeakerId}
+                onChange={(e) => setSelectedSpeakerId(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+              >
+                {speakers.length === 0 ? (
+                  <option value="">Default</option>
+                ) : (
+                  <>
+                    <option value="">Default</option>
+                    {speakers.map((s) => (
+                      <option key={s.deviceId} value={s.deviceId}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+              {!speakerSupported && (
+                <div className="mt-1 text-xs text-base-content/50">
+                  Speaker select not supported in this browser.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[var(--discord-panel)] shadow-lg">
+          <p className="border-b border-white/10 bg-black/10 p-3 text-sm text-base-content/70">You</p>
           <video
             ref={localVideo}
             autoPlay
             playsInline
             muted
-            className="w-full h-64 object-cover bg-black"
+            className="h-56 w-full bg-black object-cover md:h-72"
           />
         </div>
 
-        <div className="bg-black rounded-lg overflow-hidden">
-          <p className="text-white text-xs p-2 bg-gray-800">Remote</p>
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[var(--discord-panel)] shadow-lg">
+          <p className="border-b border-white/10 bg-black/10 p-3 text-sm text-base-content/70">Remote</p>
           <video
             ref={remoteVideo}
             autoPlay
             playsInline
-            className="w-full h-64 object-cover bg-black"
+            className="h-56 w-full bg-black object-cover md:h-72"
           />
+          <audio ref={remoteAudio} autoPlay />
         </div>
       </div>
     </div>
