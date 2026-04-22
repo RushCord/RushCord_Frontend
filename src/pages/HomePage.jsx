@@ -20,6 +20,9 @@ export const HomePage = () => {
     conversations,
     users,
     friends,
+    getUsers,
+    getConversations,
+    getFriends,
     incomingFriendRequests,
     outgoingFriendRequests,
     getFriendRequests,
@@ -39,6 +42,12 @@ export const HomePage = () => {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    getUsers();
+    getConversations();
+    getFriends();
+  }, [getUsers, getConversations, getFriends]);
 
   useEffect(() => {
     getFriendRequests();

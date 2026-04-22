@@ -492,6 +492,18 @@ body {
   font-size: 12px;
 }
 
+.mobile-group-settings-drawer {
+  z-index: 410;
+}
+
+.desktop-group-settings-drawer {
+  top: 64px;
+  height: calc(100vh - 64px);
+  min-height: 420px;
+  width: min(420px, 100vw);
+  max-width: min(420px, 100vw);
+}
+
 @media (max-width: 1280px) {
   .conversation-sidebar {
     width: 240px;
@@ -634,12 +646,32 @@ body {
     background: color-mix(in srgb, var(--discord-panel) 96%, transparent);
   }
 
+  .mobile-group-settings-drawer {
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 100vh;
+    min-height: 100vh;
+    max-width: none;
+    width: 100%;
+    border-left: 0;
+  }
+
   body.mobile-video-call-active .mobile-bottom-nav,
-  body.mobile-video-call-active .mobile-chat-input-wrap {
+  body.mobile-video-call-active .mobile-chat-input-wrap,
+  body.mobile-overlay-active .mobile-bottom-nav,
+  body.mobile-overlay-active .mobile-chat-input-wrap {
     display: none;
   }
 
-  body.mobile-video-call-active .mobile-chat-scroll {
+  body.mobile-video-call-active .mobile-chat-scroll,
+  body.mobile-overlay-active .mobile-chat-scroll {
     padding-bottom: 24px;
+  }
+}
+
+@media (min-width: 769px) {
+  body.group-settings-open .mobile-chat-scroll {
+    padding-right: 440px;
   }
 }

@@ -210,6 +210,34 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
     return () => document.removeEventListener("mousedown", close);
   }, [memberMenu]);
 
+  useEffect(() => {
+    const hasMobileOverlay =
+      showSettings ||
+      showRenameModal ||
+      showAvatarModal ||
+      showAddMemberModal ||
+      showRoleModal ||
+      showRemoveConfirm;
+    document.body.classList.toggle("mobile-overlay-active", hasMobileOverlay);
+    return () => {
+      document.body.classList.remove("mobile-overlay-active");
+    };
+  }, [
+    showSettings,
+    showRenameModal,
+    showAvatarModal,
+    showAddMemberModal,
+    showRoleModal,
+    showRemoveConfirm,
+  ]);
+
+  useEffect(() => {
+    document.body.classList.toggle("group-settings-open", showSettings);
+    return () => {
+      document.body.classList.remove("group-settings-open");
+    };
+  }, [showSettings]);
+
   const roleTarget = roleTargetUserId
     ? members.find((x) => String(x.userId) === String(roleTargetUserId))
     : null;
@@ -291,7 +319,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
               title="Members and settings"
               aria-label="Members and settings"
-              onClick={() => setShowSettings(true)}
+              onClick={() => setShowSettings((prev) => !prev)}
             >
               <Users className="size-4" />
             </button>
@@ -321,14 +349,14 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       </div>
 
       {showSettings && selectedConversation?.type === "GROUP" && (
-        <div className="fixed inset-0 z-[80]" role="presentation">
+        <div className="fixed inset-0 z-[400] md:pointer-events-none" role="presentation">
           <div
-            className="discord-modal-scrim absolute inset-0"
+            className="discord-modal-scrim absolute inset-0 md:hidden"
             onClick={() => setShowSettings(false)}
           />
 
           <div
-            className="absolute right-0 top-0 h-full w-full max-w-md border-l border-white/10 bg-[var(--discord-sidebar)] shadow-2xl"
+            className="mobile-group-settings-drawer desktop-group-settings-drawer absolute right-0 top-0 h-full w-full max-w-md border-l border-white/10 bg-[var(--discord-sidebar)] shadow-2xl md:pointer-events-auto"
             role="dialog"
             aria-modal="true"
           >
@@ -565,7 +593,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Rename modal */}
       {showRenameModal && selectedConversation?.type === "GROUP" && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-[420] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRenameModal(false);
           }}
@@ -646,7 +674,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Avatar modal */}
       {showAvatarModal && selectedConversation?.type === "GROUP" && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[90] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-[420] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAvatarModal(false);
           }}
@@ -779,7 +807,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Fixed member menu (not clipped by overflow) */}
       {memberMenu && (
         <div
-          className="fixed z-[200]"
+          className="fixed z-[430]"
           style={{
             left: memberMenu.x,
             top: memberMenu.y,
@@ -832,7 +860,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Role modal */}
       {showRoleModal && roleTargetUserId && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[210] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-[440] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRoleModal(false);
           }}
@@ -942,7 +970,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Remove confirm modal */}
       {showRemoveConfirm && removeTargetUserId && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[210] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-[440] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRemoveConfirm(false);
           }}
@@ -1000,7 +1028,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Add member modal */}
       {showAddMemberModal && selectedConversation?.type === "GROUP" && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[190] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-[450] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAddMemberModal(false);
           }}
