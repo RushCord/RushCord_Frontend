@@ -8,7 +8,105 @@ import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
 import VideoCall from "../components/VideoCall";
 import { getFileIcon } from "../lib/utils";
-import { Smile, MoreHorizontal } from "lucide-react";
+import {
+  Smile,
+  MoreHorizontal,
+  Play,
+  Pause,
+  Mic,
+} from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
+
+const formatSeconds = (sec) => {
+  const s = Number.isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+};
+
+const AudioMessage = ({ url, fileName }) => {
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [current, setCurrent] = useState(0);
+
+  const safeName = fileName || "Voice message";
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    const onLoaded = () => setDuration(Number.isFinite(el.duration) ? el.duration : 0);
+    const onTime = () => setCurrent(Number.isFinite(el.currentTime) ? el.currentTime : 0);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => setIsPlaying(false);
+
+    el.addEventListener("loadedmetadata", onLoaded);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnded);
+
+    return () => {
+      el.removeEventListener("loadedmetadata", onLoaded);
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnded);
+    };
+  }, [url]);
+
+  const toggle = async () => {
+    const el = audioRef.current;
+    if (!el) return;
+    try {
+      if (el.paused) await el.play();
+      else el.pause();
+    } catch {
+      // ignore autoplay/gesture restrictions; controls still work
+    }
+  };
+
+  const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
+
+  return (
+    <div className="w-[280px] max-w-full rounded-xl border border-zinc-700 bg-zinc-900/60 px-3 py-2">
+      <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={toggle}
+          className="w-10 h-10 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 flex items-center justify-center hover:bg-emerald-500/20 transition"
+          aria-label={isPlaying ? "Pause audio" : "Play audio"}
+          title={isPlaying ? "Tạm dừng" : "Phát"}
+        >
+          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+        </button>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <Mic className="w-4 h-4 text-zinc-400 shrink-0" />
+            <div className="truncate text-sm text-zinc-100" title={safeName}>
+              {safeName}
+            </div>
+            <div className="ml-auto text-xs text-zinc-400 tabular-nums shrink-0">
+              {formatSeconds(current)} / {formatSeconds(duration)}
+            </div>
+          </div>
+
+          <div className="mt-2 h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-emerald-500/70"
+              style={{ width: `${pct * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ChatContainer = () => {
   const {
@@ -22,16 +120,23 @@ const ChatContainer = () => {
     recallMessage,
     recallMessageMe,
     forwardMessage,
+    reactToMessage,
   } = useChatStore();
 
   const { authUser, incomingCall, clearIncomingCall, socket } = useAuthStore();
   const messageEndRef = useRef(null);
   const [isCalling, setIsCalling] = useState(false);
+  // The actual peer we are calling / answering. Avoids races with selectedUser updates.
+  const [callPeerId, setCallPeerId] = useState(null);
   const [incomingOffer, setIncomingOffer] = useState(null);
+  const [endSignal, setEndSignal] = useState(0);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [messageMenuId, setMessageMenuId] = useState(null);
   const [recallPromptMessage, setRecallPromptMessage] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [historyMessage, setHistoryMessage] = useState(null);
+  const [reactingForMessageId, setReactingForMessageId] = useState(null);
   const users = useChatStore((s) => s.users);
   const setSelectedUser = useChatStore((s) => s.setSelectedUser);
   const getFileName = (url) => {
@@ -65,6 +170,50 @@ const ChatContainer = () => {
     return () => document.removeEventListener("mousedown", close);
   }, [messageMenuId]);
 
+  useEffect(() => {
+    if (!reactingForMessageId) return;
+    const close = (e) => {
+      if (e.target?.closest?.("[data-react-picker]")) return;
+      setReactingForMessageId(null);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [reactingForMessageId]);
+
+  const renderReactions = (message) => {
+    const counts = message?.reactionCounts;
+    if (!counts || typeof counts !== "object") return null;
+    const entries = Object.entries(counts)
+      .filter(([k, v]) => k && Number(v) > 0)
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 6);
+    if (entries.length === 0) return null;
+    return (
+      <div
+        className={[
+          // Reactions should NOT control bubble width.
+          // Render inside `chat-footer` so daisyUI aligns start/end correctly.
+          "mt-1 max-w-[75%] w-fit",
+          // one row only; scroll horizontally if too many
+          "flex flex-end items-center gap-1",
+        ].join(" ")}
+      >
+        {entries.map(([emoji, count]) => (
+          <button
+            key={emoji}
+            type="button"
+            className="shrink-0 inline-flex items-center whitespace-nowrap max-w-full px-2 py-1 rounded-full bg-base-200 border border-base-300 text-xs hover:bg-base-300"
+            onClick={() => reactToMessage(message._id, emoji)}
+            title="Bấm để thả/bỏ react"
+          >
+            <span className="mr-1">{emoji}</span>
+            <span className="opacity-70">{count}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
   // =========================
   // LOAD MESSAGES
   // =========================
@@ -73,6 +222,8 @@ const ChatContainer = () => {
 
     getMessages(selectedUser._id);
     subscribeToMessages();
+    setEditingMessage(null);
+    setHistoryMessage(null);
 
     return () => {
       unsubscribeFromMessages();
@@ -84,6 +235,9 @@ const ChatContainer = () => {
   // =========================
   useEffect(() => {
     setIsCalling(false);
+    setCallPeerId(null);
+    setIncomingOffer(null);
+    setEndSignal(0);
   }, [selectedUser?._id]);
 
   // =========================
@@ -103,7 +257,15 @@ const ChatContainer = () => {
   if (isMessagesLoading) {
     return (
       <div className="flex-1 flex flex-col overflow-auto">
-        <ChatHeader />
+        <ChatHeader
+          onCall={() => {
+            if (!selectedUser?._id) return;
+            setCallPeerId(selectedUser._id);
+            setIncomingOffer(null);
+            setIsCalling(true);
+          }}
+          callDisabled={!selectedUser}
+        />
         <MessageSkeleton />
         <MessageInput />
       </div>
@@ -112,45 +274,48 @@ const ChatContainer = () => {
 
   return (
     <div className="flex-1 flex flex-col overflow-auto relative">
-      <ChatHeader />
-
-      {/* CALL BUTTON */}
-      <div className="p-2 border-b flex justify-end">
-        <button
-          onClick={() => setIsCalling(true)}
-          disabled={!selectedUser}
-          className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg shadow disabled:opacity-50"
-        >
-          📞 Call {selectedUser?.fullName}
-        </button>
-      </div>
+      <ChatHeader
+        onCall={() => {
+          if (!selectedUser?._id) return;
+          setCallPeerId(selectedUser._id);
+          setIncomingOffer(null);
+          setIsCalling(true);
+        }}
+        callDisabled={!selectedUser}
+      />
 
       {/* VIDEO CALL */}
       {isCalling && selectedUser && (
         <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="w-full max-w-2xl bg-gray-900 rounded-lg p-4 m-4 shadow-2xl">
-            <div className="flex justify-between items-center mb-4">
+          <div className="w-full max-w-6xl h-[90vh] bg-gray-900 rounded-lg p-4 m-4 shadow-2xl flex flex-col">
+            <div className="flex justify-between items-center mb-4 shrink-0">
               <h1 className="text-white text-xl font-bold">
                 Video Call with{" "}
                 <span className="text-blue-400">{selectedUser?.fullName}</span>
               </h1>
               <button
-                onClick={() => setIsCalling(false)}
+                onClick={() => setEndSignal((n) => n + 1)}
                 className="text-gray-400 hover:text-white text-2xl"
               >
                 ✕
               </button>
             </div>
 
-            <VideoCall
-              myId={authUser._id}
-              remoteId={selectedUser._id}
-              incomingOffer={incomingOffer}
-              onEnd={() => {
-                setIsCalling(false);
-                setIncomingOffer(null);
-              }}
-            />
+            <div className="flex-1 min-h-0">
+              <VideoCall
+                myId={authUser._id}
+                remoteId={callPeerId || selectedUser._id}
+                incomingOffer={incomingOffer}
+                autoStart={!incomingOffer}
+                forceEndSignal={endSignal}
+                onEnd={() => {
+                  setIsCalling(false);
+                  setIncomingOffer(null);
+                  setCallPeerId(null);
+                  setEndSignal(0);
+                }}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -175,8 +340,10 @@ const ChatContainer = () => {
                     fullName: incomingCall.from,
                   };
 
-                  setSelectedUser(caller);
+                  // Ensure VideoCall mounts with the correct peer id even if selectedUser updates later.
+                  setCallPeerId(incomingCall.from);
                   setIncomingOffer(incomingCall.offer);
+                  setSelectedUser(caller);
                   clearIncomingCall();
                   setIsCalling(true);
                 }}
@@ -236,7 +403,20 @@ const ChatContainer = () => {
             </div>
 
             {/* MESSAGE */}
-            <div className="chat-bubble flex flex-col gap-2 relative">
+            <div className="chat-bubble flex flex-col gap-2 relative max-w-[75%] break-words">
+              {!message.isRecalled &&
+                !message.isDeletedForMe &&
+                message.isEdited &&
+                Array.isArray(message.editHistory) && (
+                  <button
+                    type="button"
+                    className="self-start text-[11px] opacity-70 hover:opacity-100 underline underline-offset-2 mb-1"
+                    onClick={() => setHistoryMessage(message)}
+                    title="Xem lịch sử chỉnh sửa"
+                  >
+                    Đã chỉnh sửa
+                  </button>
+                )}
               {message.isRecalled ? (
                 <p className="italic text-gray-400">
                   {message.senderId === authUser._id
@@ -302,6 +482,12 @@ const ChatContainer = () => {
                           className="w-full rounded-lg border border-zinc-700 bg-black"
                         />
                       </div>
+                    ) : typeof message.contentType === "string" &&
+                      message.contentType.startsWith("audio/") ? (
+                      <AudioMessage
+                        url={message.file}
+                        fileName={message.fileName || getFileName(message.file)}
+                      />
                     ) : (
                       <a
                         href={message.file}
@@ -340,12 +526,17 @@ const ChatContainer = () => {
                   ) : null}
 
                   {/* TEXT */}
-                  {message.text && <p>{message.text}</p>}
+                  {message.text && (
+                    <p>
+                      {message.text}
+                    </p>
+                  )}
+
                 </>
               )}
 
               {/* HOVER: react + menu */}
-              {!message.isRecalled && (
+              {!message.isRecalled && !message.isDeletedForMe && (
                 <div
                   className={[
                     "absolute top-1/2 -translate-y-1/2",
@@ -356,14 +547,33 @@ const ChatContainer = () => {
                     "transition-opacity",
                   ].join(" ")}
                 >
-                  <button
-                    type="button"
-                    title="React (sắp có)"
-                    disabled
-                    className="btn btn-xs btn-circle bg-base-200 border border-base-300 opacity-60 cursor-not-allowed"
-                  >
-                    <Smile className="w-4 h-4" />
-                  </button>
+                  <div className="relative" data-react-picker>
+                    <button
+                      type="button"
+                      title="React"
+                      className="btn btn-xs btn-circle bg-base-200 hover:bg-base-300 border border-base-300"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReactingForMessageId((id) =>
+                          id === message._id ? null : message._id,
+                        );
+                      }}
+                    >
+                      <Smile className="w-4 h-4" />
+                    </button>
+
+                    {reactingForMessageId === message._id && (
+                      <div className="absolute z-[70] bottom-full mb-2 right-0">
+                        <EmojiPicker
+                          onEmojiClick={async (emojiData) => {
+                            setReactingForMessageId(null);
+                            await reactToMessage(message._id, emojiData.emoji);
+                          }}
+                          lazyLoadEmojis
+                        />
+                      </div>
+                    )}
+                  </div>
 
                   <div className="relative" data-message-menu>
                     <button
@@ -393,8 +603,20 @@ const ChatContainer = () => {
                         <li>
                           <button
                             type="button"
-                            disabled
-                            className="w-full px-3 py-2 text-left text-sm opacity-50 cursor-not-allowed"
+                            disabled={
+                              message.senderId !== authUser._id ||
+                              message.isDeletedForMe ||
+                              message.isRecalled ||
+                              !message.text
+                            }
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-base-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                            onClick={() => {
+                              if (message.senderId !== authUser._id) return;
+                              if (message.isDeletedForMe || message.isRecalled) return;
+                              if (!message.text) return;
+                              setEditingMessage(message);
+                              setMessageMenuId(null);
+                            }}
                           >
                             Chỉnh sửa
                           </button>
@@ -440,6 +662,11 @@ const ChatContainer = () => {
                 </div>
               )}
             </div>
+
+            {/* 😀 REACTIONS (footer so chat-start/end aligns correctly) */}
+            {!message.isRecalled && !message.isDeletedForMe && (
+              <div className="chat-footer">{renderReactions(message)}</div>
+            )}
           </div>
         ))}
       </div>
@@ -553,7 +780,105 @@ const ChatContainer = () => {
           </div>
         </div>
       )}
-      <MessageInput />
+      {historyMessage && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setHistoryMessage(null);
+          }}
+          role="presentation"
+        >
+          <div
+            className="bg-zinc-900 rounded-xl w-full max-w-2xl border border-zinc-700 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-dialog-title"
+          >
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-zinc-800">
+              <h2
+                id="history-dialog-title"
+                className="text-white font-semibold text-lg pr-2"
+              >
+                Lịch sử chỉnh sửa
+              </h2>
+              <button
+                type="button"
+                onClick={() => setHistoryMessage(null)}
+                className="text-zinc-400 hover:text-white shrink-0 text-xl leading-none"
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3">
+                <div className="text-xs text-zinc-400 mb-1">Nội dung hiện tại</div>
+                <div className="text-zinc-100 whitespace-pre-wrap break-words">
+                  {historyMessage.text || ""}
+                </div>
+              </div>
+
+              {Array.isArray(historyMessage.editHistory) &&
+              historyMessage.editHistory.length > 0 ? (
+                <div className="space-y-2">
+                  {historyMessage.editHistory
+                    .slice()
+                    .reverse()
+                    .map((h, idx) => {
+                      const when = h?.editedAt
+                        ? formatMessageTime(h.editedAt)
+                        : `#${idx + 1}`;
+                      const prev = typeof h?.prevText === "string" ? h.prevText : "";
+                      const next =
+                        typeof h?.nextText === "string" ? h.nextText : null;
+                      return (
+                        <div
+                          key={`${h?.editedAt || "edit"}-${idx}`}
+                          className="rounded-lg border border-zinc-800 bg-zinc-950/30 p-3"
+                        >
+                          <div className="text-xs text-zinc-400 mb-2">
+                            {when}
+                          </div>
+                          <div className="grid gap-2">
+                            <div>
+                              <div className="text-xs text-zinc-500 mb-1">
+                                Trước
+                              </div>
+                              <div className="text-zinc-200 whitespace-pre-wrap break-words">
+                                {prev}
+                              </div>
+                            </div>
+                            {next != null && (
+                              <div>
+                                <div className="text-xs text-zinc-500 mb-1">
+                                  Sau
+                                </div>
+                                <div className="text-zinc-200 whitespace-pre-wrap break-words">
+                                  {next}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                <div className="text-sm text-zinc-400">
+                  Không có lịch sử chỉnh sửa.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <MessageInput
+        editingMessage={editingMessage}
+        onCancelEdit={() => setEditingMessage(null)}
+      />
     </div>
   );
 };

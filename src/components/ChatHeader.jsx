@@ -1,8 +1,8 @@
-import { X } from "lucide-react";
+import { AlertCircle, Phone, X } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 
-const ChatHeader = () => {
+const ChatHeader = ({ onCall, callDisabled = false }) => {
   const { selectedUser, setSelectedUser } = useChatStore();
   const { onlineUsers } = useAuthStore();
 
@@ -26,10 +26,33 @@ const ChatHeader = () => {
           </div>
         </div>
 
-        {/* Close button */}
-        <button onClick={() => setSelectedUser(null)}>
-          <X />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCall}
+            disabled={callDisabled}
+            className="btn btn-sm btn-circle bg-green-500 hover:bg-green-600 border-0 text-white disabled:opacity-50 disabled:bg-green-500 disabled:text-white"
+            title={callDisabled ? "Chưa chọn người" : `Gọi ${selectedUser.fullName}`}
+            aria-label="Call"
+          >
+            <Phone className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            disabled
+            className="btn btn-sm btn-circle bg-base-200 hover:bg-base-300 border border-base-300 text-base-content opacity-50 cursor-not-allowed"
+            title="Xem chi tiết (tạm thời tắt)"
+            aria-label="Details (disabled)"
+          >
+            <AlertCircle className="w-4 h-4" />
+          </button>
+
+          {/* Close button */}
+          <button type="button" onClick={() => setSelectedUser(null)} aria-label="Close">
+            <X />
+          </button>
+        </div>
       </div>
     </div>
   );

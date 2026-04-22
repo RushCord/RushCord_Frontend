@@ -3,20 +3,31 @@ import { useAuthStore } from "../store/useAuthStore";
 
 const servers = {
   iceServers: [
+    // STUN helps for NAT discovery (can still fall back to TURN).
+    { urls: ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"] },
+    // TURN for cross-network / symmetric NAT.
+    // Order matters: prefer UDP (best media), then TCP fallback, then TLS fallback for strict networks.
     {
-      urls: "turn:turn.oeb20412.com:443?transport=tcp",
+      urls: [
+        "turn:turn.oeb20412.com:3478?transport=tcp",
+        "turns:turn.oeb20412.com:5349?transport=tcp",
+        "turn:turn.oeb20412.com:3478?transport=udp",
+      ],
       username: "rushcord",
       credential: "67696162616f",
     },
   ],
-  iceTransportPolicy: 'all',
-  iceCandidatePoolSize: 10
+  // Prefer direct P2P when possible; TURN will be used as needed.
+  // (Use "relay" only for debugging / forcing TURN.)
+  iceTransportPolicy: "all",
 };
 
 export default function VideoCall({
   myId,
   remoteId,
   incomingOffer: propIncomingOffer,
+  autoStart = false,
+  forceEndSignal = 0,
   onEnd,
 }) {
   const localVideo = useRef(null);
@@ -27,6 +38,7 @@ export default function VideoCall({
   const [callStatus, setCallStatus] = useState("idle"); // idle, calling, connected, ended
   const [error, setError] = useState(null);
   const socket = useAuthStore((s) => s.socket);
+  const clearIncomingCall = useAuthStore((s) => s.clearIncomingCall);
   const [incomingCaller, setIncomingCaller] = useState(null);
   const [incomingOffer, setIncomingOffer] = useState(null);
   const [cameras, setCameras] = useState([]); // [{ deviceId, label }]
@@ -38,6 +50,9 @@ export default function VideoCall({
   const [speakerSupported, setSpeakerSupported] = useState(true);
   const acceptOnceRef = useRef(false);
   const pendingCandidatesRef = useRef([]); // RTCIceCandidateInit[]
+  const latestRef = useRef({ myId, remoteId, socket });
+  const iceRecoveryTimerRef = useRef(null);
+  const iceRestartInFlightRef = useRef(false);
   // const incomingCall = useAuthStore((s) => s.incomingCall);
   // const clearIncomingCall = useAuthStore((s) => s.clearIncomingCall);
 
@@ -58,6 +73,150 @@ export default function VideoCall({
         console.error("❌ flush addIceCandidate error:", err);
       }
     }
+  };
+
+  const waitForIceGatheringComplete = async (peer, timeoutMs = 2000) => {
+    if (!peer) return;
+    if (peer.iceGatheringState === "complete") return;
+
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try {
+          peer.removeEventListener?.("icegatheringstatechange", onChange);
+        } catch {}
+        clearTimeout(timer);
+        resolve();
+      };
+
+      const onChange = () => {
+        if (peer.iceGatheringState === "complete") finish();
+      };
+
+      const timer = setTimeout(finish, timeoutMs);
+
+      try {
+        peer.addEventListener?.("icegatheringstatechange", onChange);
+      } catch {
+        // Fallback: wait until timeout
+      }
+    });
+  };
+
+  const clearIceRecoveryTimer = () => {
+    if (iceRecoveryTimerRef.current) {
+      clearTimeout(iceRecoveryTimerRef.current);
+      iceRecoveryTimerRef.current = null;
+    }
+  };
+
+  const maybeRestartIce = async (reason) => {
+    const pcRef = pc.current;
+    if (!pcRef) return;
+    if (pcRef.signalingState === "closed") return;
+    if (!pcRef.currentRemoteDescription || !pcRef.currentLocalDescription) return;
+    if (iceRestartInFlightRef.current) return;
+
+    iceRestartInFlightRef.current = true;
+    try {
+      console.log("🔁 ICE restart requested:", reason);
+      // Prefer native restartIce when available.
+      if (typeof pcRef.restartIce === "function") {
+        pcRef.restartIce();
+        return;
+      }
+      const offer = await pcRef.createOffer({ iceRestart: true });
+      await pcRef.setLocalDescription(offer);
+      const { socket: s, remoteId: rid, myId: mid } = latestRef.current || {};
+      if (s && rid && mid) {
+        s.emit("callUser", { to: rid, from: mid, offer });
+      }
+    } catch (e) {
+      console.error("❌ ICE restart failed:", e);
+    } finally {
+      // allow another attempt after a short cool-down
+      setTimeout(() => {
+        iceRestartInFlightRef.current = false;
+      }, 1500);
+    }
+  };
+
+  const attachPeerHandlers = (peer) => {
+    if (!peer) return;
+
+    // nhận video remote
+    peer.ontrack = (event) => {
+      console.log("📺 Received remote stream");
+      let remoteStream = event.streams?.[0];
+      if (!remoteStream && event.track) {
+        remoteStream = new MediaStream();
+        remoteStream.addTrack(event.track);
+      }
+      if (remoteVideo.current && remoteStream) {
+        remoteVideo.current.srcObject = remoteStream;
+      }
+    };
+
+    // gửi ICE
+    peer.onicecandidate = (event) => {
+      const { socket: s, remoteId: rid, myId: mid } = latestRef.current || {};
+      if (event.candidate && s && rid && mid) {
+        s.emit("iceCandidate", {
+          to: rid,
+          from: mid,
+          candidate: event.candidate,
+        });
+      }
+    };
+
+    peer.oniceconnectionstatechange = () => {
+      const state = peer.iceConnectionState;
+      console.log("🌐 ICE Connection State:", state);
+
+      if (state === "connected" || state === "completed") {
+        clearIceRecoveryTimer();
+        setCallStatus("connected");
+        return;
+      }
+
+      // "disconnected" can be transient (wifi<->4g, NAT rebinding). Don't end immediately.
+      if (state === "disconnected") {
+        clearIceRecoveryTimer();
+        iceRecoveryTimerRef.current = setTimeout(async () => {
+          // Re-check state after grace period
+          const now = peer.iceConnectionState;
+          if (now === "disconnected") {
+            await maybeRestartIce("disconnected-timeout");
+          }
+        }, 8000);
+        return;
+      }
+
+      if (state === "failed") {
+        clearIceRecoveryTimer();
+        // Attempt ICE restart once, then let onconnectionstatechange decide if we must end.
+        maybeRestartIce("failed");
+        return;
+      }
+
+      if (state === "closed") {
+        clearIceRecoveryTimer();
+        setCallStatus("ended");
+        endCall({ sendHangup: false });
+      }
+    };
+
+    peer.onconnectionstatechange = () => {
+      const st = peer.connectionState;
+      console.log("📡 Connection State:", st);
+      // If the transport truly fails, close.
+      if (st === "failed") {
+        clearIceRecoveryTimer();
+        endCall({ sendHangup: true });
+      }
+    };
   };
 
   const refreshDevices = async () => {
@@ -125,60 +284,19 @@ export default function VideoCall({
   // INIT PEER
   // =========================
   useEffect(() => {
+    latestRef.current = { myId, remoteId, socket };
+  }, [myId, remoteId, socket]);
+
+  useEffect(() => {
     // Only create peer connection if we don't have incoming offer
     // For incoming calls, we'll create it in acceptCall
     if (!propIncomingOffer && !pc.current) {
       pc.current = new RTCPeerConnection(servers);
-
-      // nhận video remote
-      pc.current.ontrack = (event) => {
-        console.log("📺 Received remote stream");
-        let remoteStream = event.streams?.[0];
-        if (!remoteStream && event.track) {
-          remoteStream = new MediaStream();
-          remoteStream.addTrack(event.track);
-        }
-        if (remoteVideo.current && remoteStream) {
-          remoteVideo.current.srcObject = remoteStream;
-        }
-      };
-
-      // gửi ICE
-      pc.current.onicecandidate = (event) => {
-        if (event.candidate && socket) {
-          socket.emit("iceCandidate", {
-            to: remoteId,
-            from: myId,
-            candidate: event.candidate,
-          });
-        }
-      };
-
-      // theo dõi trạng thái connection
-      pc.current.oniceconnectionstatechange = () => {
-        console.log("🌐 ICE Connection State:", pc.current.iceConnectionState);
-        if (
-          pc.current.iceConnectionState === "connected" ||
-          pc.current.iceConnectionState === "completed"
-        ) {
-          setCallStatus("connected");
-        }
-        if (
-          pc.current.iceConnectionState === "disconnected" ||
-          pc.current.iceConnectionState === "failed" ||
-          pc.current.iceConnectionState === "closed"
-        ) {
-          setCallStatus("ended");
-          endCall();
-        }
-      };
-
-      pc.current.onconnectionstatechange = () => {
-        console.log("📡 Connection State:", pc.current.connectionState);
-      };
+      attachPeerHandlers(pc.current);
     }
 
     return () => {
+      clearIceRecoveryTimer();
       try {
         pc.current?.close();
       } catch (e) {}
@@ -222,6 +340,66 @@ export default function VideoCall({
 
     return () => {};
   }, [remoteId, socket]);
+
+  // =========================
+  // HANDLE RENEGOTIATION / GLARE
+  // If we are already in a call with `remoteId`, treat `incomingCall` offers
+  // as renegotiation (incl. ICE restart) and auto-answer (no UI accept needed).
+  // =========================
+  useEffect(() => {
+    const handleIncomingCallOffer = async ({ from, offer }) => {
+      try {
+        if (!from || from !== remoteId) return;
+        if (!offer) return;
+        if (!pc.current || pc.current.signalingState === "closed") return;
+
+        // If we aren't in an active call flow, let ChatContainer handle accept UI.
+        if (callStatus === "idle" || callStatus === "ended") return;
+
+        console.log("🔁 Renegotiation offer received from", from);
+
+        // Clear the global incoming call toast/prompt (we're handling it in-call).
+        try {
+          clearIncomingCall?.();
+        } catch {}
+
+        const peer = pc.current;
+
+        // Perfect-negotiation style: if we have a local offer in flight, rollback.
+        if (peer.signalingState !== "stable") {
+          try {
+            await peer.setLocalDescription({ type: "rollback" });
+          } catch (e) {
+            // Some browsers may not support rollback; continue best-effort.
+          }
+        }
+
+        await peer.setRemoteDescription(new RTCSessionDescription(offer));
+        await flushPendingIceCandidates();
+
+        const answer = await peer.createAnswer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await peer.setLocalDescription(answer);
+        await waitForIceGatheringComplete(peer, 2000);
+
+        if (socket) {
+          socket.emit("answerCall", {
+            to: from,
+            from: myId,
+            answer: peer.localDescription || answer,
+          });
+        }
+      } catch (e) {
+        console.error("❌ renegotiation handling failed:", e);
+      }
+    };
+
+    if (!socket) return () => {};
+    socket.on("incomingCall", handleIncomingCallOffer);
+    return () => socket.off("incomingCall", handleIncomingCallOffer);
+  }, [socket, remoteId, myId, callStatus, clearIncomingCall]);
 
   // =========================
   // START MEDIA
@@ -421,6 +599,8 @@ export default function VideoCall({
 
       console.log("📤 Setting local description...");
       await pc.current.setLocalDescription(offer);
+      // Reduce reliance on trickle ICE (prevents missing early candidates when callee just mounted).
+      await waitForIceGatheringComplete(pc.current, 2000);
       console.log(
         "📡 Signaling state after setLocalDescription:",
         pc.current.signalingState,
@@ -439,7 +619,7 @@ export default function VideoCall({
       socket.emit("callUser", {
         to: remoteId,
         from: myId,
-        offer: offer,
+        offer: pc.current.localDescription || offer,
       });
       console.log("✅ Offer sent, waiting for answer...");
     } catch (err) {
@@ -502,56 +682,7 @@ export default function VideoCall({
 
       if (!pc.current) {
         pc.current = new RTCPeerConnection(servers);
-
-        // nhận video remote
-        pc.current.ontrack = (event) => {
-          console.log("📺 Received remote stream");
-          let remoteStream = event.streams?.[0];
-          if (!remoteStream && event.track) {
-            remoteStream = new MediaStream();
-            remoteStream.addTrack(event.track);
-          }
-          if (remoteVideo.current && remoteStream) {
-            remoteVideo.current.srcObject = remoteStream;
-          }
-        };
-
-        // gửi ICE
-        pc.current.onicecandidate = (event) => {
-          if (event.candidate && socket) {
-            socket.emit("iceCandidate", {
-              to: remoteId,
-              from: myId,
-              candidate: event.candidate,
-            });
-          }
-        };
-
-        // theo dõi trạng thái connection
-        pc.current.oniceconnectionstatechange = () => {
-          console.log(
-            "🌐 ICE Connection State:",
-            pc.current.iceConnectionState,
-          );
-          if (
-            pc.current.iceConnectionState === "connected" ||
-            pc.current.iceConnectionState === "completed"
-          ) {
-            setCallStatus("connected");
-          }
-          if (
-            pc.current.iceConnectionState === "disconnected" ||
-            pc.current.iceConnectionState === "failed" ||
-            pc.current.iceConnectionState === "closed"
-          ) {
-            setCallStatus("ended");
-            endCall();
-          }
-        };
-
-        pc.current.onconnectionstatechange = () => {
-          console.log("📡 Connection State:", pc.current.connectionState);
-        };
+        attachPeerHandlers(pc.current);
 
         // Add local stream tracks to peer connection
         if (localStream) {
@@ -608,6 +739,7 @@ export default function VideoCall({
 
       console.log("📤 Setting local description...");
       await pc.current.setLocalDescription(answer);
+      await waitForIceGatheringComplete(pc.current, 2000);
 
       if (!socket) throw new Error("No signaling socket");
 
@@ -615,7 +747,7 @@ export default function VideoCall({
       socket.emit("answerCall", {
         to: remoteId,
         from: myId,
-        answer,
+        answer: pc.current.localDescription || answer,
       });
 
       setCallStatus("calling"); // Đợi ICE state chuyển sang connected mới set connected
@@ -700,7 +832,7 @@ export default function VideoCall({
     }
 
     return () => {};
-  }, [remoteId, myId]);
+  }, [remoteId, myId, socket]);
 
   // =========================
   // LISTEN HANGUP FROM REMOTE
@@ -709,7 +841,7 @@ export default function VideoCall({
     const handleHangup = ({ from }) => {
       if (from !== remoteId) return;
       // remote ended the call
-      endCall();
+      endCall({ sendHangup: false });
     };
 
     if (socket) {
@@ -724,15 +856,16 @@ export default function VideoCall({
   // CALL INITIATED AUTOMATICALLY
   // =========================
   useEffect(() => {
-    // Khi component mount và có remoteId, tự động gọi (chỉ khi không có incomingOffer)
-    if (remoteId && callStatus === "idle" && !propIncomingOffer) {
+    // Only auto-start for the caller flow. For callee flow (incomingOffer),
+    // the call should start from Accept (answer), not by creating a new offer.
+    if (autoStart && remoteId && callStatus === "idle" && !propIncomingOffer) {
       const timer = setTimeout(() => {
         callUser();
       }, 500);
 
       return () => clearTimeout(timer);
     }
-  }, [remoteId, callStatus, propIncomingOffer]);
+  }, [autoStart, remoteId, callStatus, propIncomingOffer]);
 
   // =========================
   // INIT CAMERA LIST + DEVICECHANGE
@@ -761,10 +894,12 @@ export default function VideoCall({
   // =========================
   // END CALL
   // =========================
-  const endCall = () => {
+  const endCall = ({ sendHangup = true } = {}) => {
     console.log("❌ Ending call");
 
-    if (socket && remoteId) {
+    clearIceRecoveryTimer();
+
+    if (sendHangup && socket && remoteId) {
       console.log("🔚 Emitting hangup to remote", remoteId);
       socket.emit("hangup", { to: remoteId, from: myId });
     }
@@ -794,41 +929,57 @@ export default function VideoCall({
     onEnd && onEnd();
   };
 
+  // Allow parent (modal close) to end the call gracefully
+  useEffect(() => {
+    if (!forceEndSignal) return;
+    endCall({ sendHangup: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceEndSignal]);
+
   return (
-    <div className="w-full max-w-2xl bg-gray-900 rounded-lg p-4">
-      <h2 className="text-white text-lg font-bold mb-3 flex items-center gap-2">
-        <span>📹</span>
+    <div className="w-full h-full bg-gray-900 rounded-xl p-6 lg:p-8">
+      <h2 className="text-white text-xl lg:text-2xl font-bold mb-4 flex items-center gap-3">
         <span>Video Call</span>
-        <span
-          className={`ml-auto text-sm px-2 py-1 rounded ${
-            callStatus === "idle"
-              ? "bg-gray-700"
+        <span className="ml-auto flex items-center gap-2">
+          <span
+            className={`text-base px-3 py-1.5 rounded-lg ${
+              callStatus === "idle"
+                ? "bg-gray-700"
+                : callStatus === "calling"
+                  ? "bg-yellow-600"
+                  : callStatus === "connected"
+                    ? "bg-green-600"
+                    : "bg-red-600"
+            }`}
+          >
+            {callStatus === "idle"
+              ? "Idle"
               : callStatus === "calling"
-                ? "bg-yellow-600"
+                ? "Calling..."
                 : callStatus === "connected"
-                  ? "bg-green-600"
-                  : "bg-red-600"
-          }`}
-        >
-          {callStatus === "idle"
-            ? "Idle"
-            : callStatus === "calling"
-              ? "Calling..."
-              : callStatus === "connected"
-                ? "Connected"
-                : "Ended"}
+                  ? "Connected"
+                  : "Ended"}
+          </span>
+
+          <button
+            type="button"
+            onClick={endCall}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-base"
+          >
+            End
+          </button>
         </span>
       </h2>
 
       {error && (
-        <div className="mb-3 bg-red-900/50 text-red-200 p-2 rounded text-sm">
-          ⚠️ {error}
+        <div className="mb-4 bg-red-900/50 text-red-200 p-3 rounded-lg text-base">
+          {error}
         </div>
       )}
 
-      <div className="mb-3 grid grid-cols-1 gap-2">
-        <div className="flex items-center gap-2">
-          <label className="text-white text-sm w-20">Camera</label>
+      <div className="mb-5 grid grid-cols-1 gap-3">
+        <div className="flex items-center gap-3">
+          <label className="text-white text-base w-28">Camera</label>
           <select
             value={selectedCameraId}
             onChange={(e) => {
@@ -836,7 +987,7 @@ export default function VideoCall({
               setSelectedCameraId(id);
               if (stream) switchCamera(id);
             }}
-            className="bg-gray-800 text-white text-sm rounded px-2 py-1 border border-gray-700 flex-1"
+            className="bg-gray-800 text-white text-base rounded-lg px-3 py-2 border border-gray-700 flex-1"
           >
             {cameras.length === 0 ? (
               <option value="">No camera</option>
@@ -850,8 +1001,8 @@ export default function VideoCall({
           </select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-white text-sm w-20">Mic</label>
+        <div className="flex items-center gap-3">
+          <label className="text-white text-base w-28">Mic</label>
           <select
             value={selectedMicId}
             onChange={(e) => {
@@ -859,7 +1010,7 @@ export default function VideoCall({
               setSelectedMicId(id);
               if (stream) switchMicrophone(id);
             }}
-            className="bg-gray-800 text-white text-sm rounded px-2 py-1 border border-gray-700 flex-1"
+            className="bg-gray-800 text-white text-base rounded-lg px-3 py-2 border border-gray-700 flex-1"
           >
             {microphones.length === 0 ? (
               <option value="">No microphone</option>
@@ -873,8 +1024,8 @@ export default function VideoCall({
           </select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-white text-sm w-20">Speaker</label>
+        <div className="flex items-center gap-3">
+          <label className="text-white text-base w-28">Speaker</label>
           <select
             value={selectedSpeakerId}
             onChange={(e) => {
@@ -882,7 +1033,7 @@ export default function VideoCall({
               setSelectedSpeakerId(id);
               applySpeaker(id);
             }}
-            className="bg-gray-800 text-white text-sm rounded px-2 py-1 border border-gray-700 flex-1"
+            className="bg-gray-800 text-white text-base rounded-lg px-3 py-2 border border-gray-700 flex-1"
           >
             {speakers.length === 0 ? (
               <option value="">Default</option>
@@ -898,64 +1049,30 @@ export default function VideoCall({
             )}
           </select>
           {!speakerSupported && (
-            <span className="text-xs text-gray-400">Not supported</span>
+            <span className="text-sm text-gray-400">Not supported</span>
           )}
         </div>
       </div>
 
-      <div className="mb-3 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() =>
-            startMedia({ videoDeviceId: selectedCameraId, audioDeviceId: selectedMicId })
-          }
-          disabled={!!stream}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white px-3 py-2 rounded-lg text-sm"
-        >
-          Enable
-        </button>
-      </div>
-
-      <div className="mb-3 flex gap-2">
-        <button
-          onClick={callUser}
-          disabled={
-            callStatus === "calling" || callStatus === "connected" || !stream
-          }
-          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-        >
-          <span>📞</span>
-          {callStatus === "connected" ? "Connected" : "Call"}
-        </button>
-
-        <button
-          onClick={endCall}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-        >
-          <span>❌</span>
-          End
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-black rounded-lg overflow-hidden">
-          <p className="text-white text-xs p-2 bg-gray-800">You</p>
+          <p className="text-white text-sm p-3 bg-gray-800">You</p>
           <video
             ref={localVideo}
             autoPlay
             playsInline
             muted
-            className="w-full h-64 object-cover bg-black"
+            className="w-full h-72 md:h-96 lg:h-[28rem] object-cover bg-black"
           />
         </div>
 
         <div className="bg-black rounded-lg overflow-hidden">
-          <p className="text-white text-xs p-2 bg-gray-800">Remote</p>
+          <p className="text-white text-sm p-3 bg-gray-800">Remote</p>
           <video
             ref={remoteVideo}
             autoPlay
             playsInline
-            className="w-full h-64 object-cover bg-black"
+            className="w-full h-72 md:h-96 lg:h-[28rem] object-cover bg-black"
           />
         </div>
       </div>

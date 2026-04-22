@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { Image, Send, X, Smile, FileText, Video, Play } from "lucide-react";
+import { Image, Send, X, Smile, FileText, Video, Play, Mic, Square } from "lucide-react";
 import toast from "react-hot-toast";
 import EmojiPicker from "emoji-picker-react";
 import { useAuthStore } from "../store/useAuthStore";
 
-const MessageInput = () => {
+const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   const [text, setText] = useState("");
   const [previews, setPreviews] = useState([]);
   const fileInputRef = useRef(null);
-  const { sendMessage } = useChatStore();
+  const { sendMessage, editMessageText } = useChatStore();
   const [showEmoji, setShowEmoji] = useState(false);
   const [files, setFiles] = useState([]);
   const socket = useAuthStore((s) => s.socket);
@@ -17,6 +17,52 @@ const MessageInput = () => {
   const typingDebounceRef = useRef(null);
   const lastTypingSentAtRef = useRef(0);
   const typingActiveRef = useRef(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordMs, setRecordMs] = useState(0);
+  const recorderRef = useRef(null);
+  const recordStreamRef = useRef(null);
+  const recordChunksRef = useRef([]);
+  const recordTimerRef = useRef(null);
+
+  const cleanupRecording = () => {
+    try {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    } catch {}
+    recordTimerRef.current = null;
+    setRecordMs(0);
+    try {
+      recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+    } catch {}
+    recordStreamRef.current = null;
+    recorderRef.current = null;
+    recordChunksRef.current = [];
+    setIsRecording(false);
+  };
+
+  const pickAudioMimeType = () => {
+    const mr = window.MediaRecorder;
+    if (!mr || typeof mr.isTypeSupported !== "function") return "";
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+    ];
+    for (const t of candidates) {
+      if (mr.isTypeSupported(t)) return t;
+    }
+    return "";
+  };
+
+  const extFromMime = (mime) => {
+    const m = String(mime || "").toLowerCase();
+    if (m.includes("ogg")) return "ogg";
+    if (m.includes("webm")) return "webm";
+    if (m.includes("mpeg") || m === "audio/mp3") return "mp3";
+    if (m.includes("mp4")) return "m4a";
+    if (m.includes("wav")) return "wav";
+    return "audio";
+  };
 
   const emitTyping = (isTyping) => {
     const to = selectedUser?._id;
@@ -28,6 +74,7 @@ const MessageInput = () => {
   useEffect(() => {
     return () => {
       if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
+      cleanupRecording();
     };
   }, []);
 
@@ -35,7 +82,20 @@ const MessageInput = () => {
     // reset typing state when switching conversations
     typingActiveRef.current = false;
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
+    cleanupRecording();
   }, [selectedUser?._id]);
+
+  useEffect(() => {
+    if (!editingMessage) return;
+    setText(editingMessage.text || "");
+    setFiles([]);
+    previews.forEach((p) => {
+      if (p?.kind === "image" && p.url) URL.revokeObjectURL(p.url);
+    });
+    setPreviews([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    cleanupRecording();
+  }, [editingMessage?._id]);
 
   const handleFileChange = async (e) => {
     const selected = Array.from(e.target.files || []);
@@ -57,6 +117,11 @@ const MessageInput = () => {
       "image/gif",
       "video/mp4",
       "video/webm",
+      "audio/webm",
+      "audio/ogg",
+      "audio/mpeg",
+      "audio/mp4",
+      "audio/wav",
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -127,6 +192,11 @@ const MessageInput = () => {
         name.endsWith(".gif") ||
         name.endsWith(".mp4") ||
         name.endsWith(".webm") ||
+        name.endsWith(".mp3") ||
+        name.endsWith(".m4a") ||
+        name.endsWith(".aac") ||
+        name.endsWith(".ogg") ||
+        name.endsWith(".wav") ||
         name.endsWith(".pdf") ||
         name.endsWith(".doc") ||
         name.endsWith(".docx");
@@ -134,7 +204,7 @@ const MessageInput = () => {
       const okType = (mime && allowedMime.has(mime)) || (!mime && allowedByExt);
       if (!okType) {
         toast.error(
-          "File không đúng định dạng (chỉ hỗ trợ: ảnh, mp4/webm, pdf, docx)"
+          "File không đúng định dạng (chỉ hỗ trợ: ảnh, video, audio, pdf, doc/docx)"
         );
         continue;
       }
@@ -150,6 +220,14 @@ const MessageInput = () => {
         mime === "video/mp4" ||
         mime === "video/webm" ||
         name.endsWith(".mp4") ||
+        name.endsWith(".webm");
+      const isAudio =
+        (mime && mime.startsWith("audio/")) ||
+        name.endsWith(".mp3") ||
+        name.endsWith(".m4a") ||
+        name.endsWith(".aac") ||
+        name.endsWith(".ogg") ||
+        name.endsWith(".wav") ||
         name.endsWith(".webm");
       const isDoc =
         mime === "application/pdf" ||
@@ -170,6 +248,8 @@ const MessageInput = () => {
         ? MAX_IMAGE_MB
         : isVideo
           ? MAX_VIDEO_MB
+          : isAudio
+            ? MAX_DOC_MB
           : MAX_DOC_MB;
       const maxBytes = maxMb * MB;
       if (sizeBytes > maxBytes) {
@@ -191,6 +271,8 @@ const MessageInput = () => {
           url: thumb, // dataUrl
           name: f.name,
         });
+      } else if (isAudio) {
+        nextPreviews.push({ kind: "audio", url: null, name: f.name });
       } else if (isPdf) {
         nextPreviews.push({ kind: "pdf", url: null, name: f.name });
       } else if (isDocLegacy) {
@@ -221,8 +303,72 @@ const MessageInput = () => {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const startRecording = async () => {
+    if (editingMessage) return;
+    if (isRecording) return;
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        toast.error("Trình duyệt không hỗ trợ ghi âm");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+      recordChunksRef.current = [];
+
+      const mimeType = pickAudioMimeType();
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = rec;
+
+      rec.ondataavailable = (e) => {
+        if (e?.data && e.data.size > 0) recordChunksRef.current.push(e.data);
+      };
+
+      rec.onstop = async () => {
+        try {
+          const rawType = rec.mimeType || mimeType || "audio/webm";
+          const type = String(rawType).split(";")[0].trim() || "audio/webm";
+          const blob = new Blob(recordChunksRef.current, { type });
+          if (!blob.size) {
+            toast.error("Không có dữ liệu ghi âm");
+            return;
+          }
+          const ext = extFromMime(type);
+          const file = new File([blob], `voice-${Date.now()}.${ext}`, { type });
+          await sendMessage({ text: "", file });
+        } catch (err) {
+          toast.error(err?.message || "Gửi ghi âm thất bại");
+        } finally {
+          cleanupRecording();
+        }
+      };
+
+      rec.start();
+      setIsRecording(true);
+      setRecordMs(0);
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      recordTimerRef.current = setInterval(() => {
+        setRecordMs((ms) => ms + 250);
+      }, 250);
+    } catch (err) {
+      cleanupRecording();
+      toast.error(err?.message || "Không thể bật micro");
+    }
+  };
+
+  const stopRecording = () => {
+    const rec = recorderRef.current;
+    if (!rec) return;
+    try {
+      if (rec.state !== "inactive") rec.stop();
+    } catch {
+      cleanupRecording();
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    if (isRecording) return;
     if (!text.trim() && files.length === 0) return;
 
     try {
@@ -230,6 +376,12 @@ const MessageInput = () => {
       if (typingActiveRef.current) {
         emitTyping(false);
         typingActiveRef.current = false;
+      }
+      if (editingMessage?._id) {
+        await editMessageText(editingMessage._id, trimmed);
+        setText("");
+        if (typeof onCancelEdit === "function") onCancelEdit();
+        return;
       }
       if (files.length === 0) {
         await sendMessage({ text: trimmed });
@@ -273,6 +425,24 @@ const MessageInput = () => {
 
   return (
     <div className="p-4 w-full">
+      {editingMessage && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-900/60 px-3 py-2">
+          <div className="text-sm text-zinc-200 truncate">
+            Đang chỉnh sửa:{" "}
+            <span className="text-zinc-400">{editingMessage.text || ""}</span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-xs"
+            onClick={() => {
+              setText("");
+              if (typeof onCancelEdit === "function") onCancelEdit();
+            }}
+          >
+            Hủy
+          </button>
+        </div>
+      )}
       {previews.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {previews.map((p, idx) => (
@@ -318,6 +488,18 @@ const MessageInput = () => {
                   </span>
                 </div>
               )}
+              {p.kind === "audio" && (
+                <div className="w-20 rounded-lg border border-zinc-700 bg-zinc-900 flex flex-col items-center justify-center gap-1 p-1">
+                  <Mic className="w-6 h-6 text-zinc-400" />
+                  <span className="text-[10px] text-zinc-400">AUDIO</span>
+                  <span
+                    className="text-[10px] text-zinc-300 max-w-[72px] truncate"
+                    title={p.name}
+                  >
+                    {p.name}
+                  </span>
+                </div>
+              )}
               <button
                 onClick={() => removeFileAt(idx)}
                 className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-base-300 flex items-center justify-center"
@@ -335,7 +517,7 @@ const MessageInput = () => {
           <input
             type="text"
             className="w-full input input-bordered rounded-lg input-sm sm:input-md"
-            placeholder="Type a message..."
+            placeholder={editingMessage ? "Edit message..." : "Type a message..."}
             value={text}
             onChange={(e) => {
               const next = e.target.value;
@@ -347,6 +529,7 @@ const MessageInput = () => {
               // Debounce + throttle to avoid spamming socket on each keystroke.
               if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
 
+              if (editingMessage) return;
               if (!hasText) {
                 if (typingActiveRef.current) {
                   emitTyping(false);
@@ -366,7 +549,7 @@ const MessageInput = () => {
           />
           <input
             type="file"
-            accept="image/*,video/mp4,video/webm,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            accept="image/*,video/mp4,video/webm,audio/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             multiple
             className="hidden"
             ref={fileInputRef}
@@ -378,9 +561,28 @@ const MessageInput = () => {
             className={`hidden sm:flex btn btn-circle
                      ${previews.length > 0 ? "text-emerald-500" : "text-zinc-400"}`}
             onClick={() => fileInputRef.current?.click()}
+            disabled={!!editingMessage}
           >
             <Image size={20} />
           </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`hidden sm:flex btn btn-circle ${
+              isRecording ? "text-red-400" : "text-zinc-400"
+            }`}
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={!!editingMessage}
+            title={isRecording ? "Dừng ghi âm & gửi" : "Ghi âm"}
+          >
+            {isRecording ? <Square size={20} /> : <Mic size={20} />}
+          </button>
+          {isRecording && (
+            <span className="hidden sm:inline text-xs text-red-300 tabular-nums">
+              REC {Math.floor(recordMs / 1000)}s
+            </span>
+          )}
         </div>
         <div className="relative">
           <button
@@ -405,7 +607,7 @@ const MessageInput = () => {
         <button
           type="submit"
           className="btn btn-sm btn-circle"
-          disabled={!text.trim() && files.length === 0}
+          disabled={isRecording || (!text.trim() && files.length === 0)}
         >
           <Send size={22} />
         </button>

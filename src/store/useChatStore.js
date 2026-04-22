@@ -15,6 +15,7 @@ export const useChatStore = create((set, get) => ({
   recentConversations: loadRecentConversations(),
   isTyping: false,
   _typingTimer: null,
+  isReacting: false,
   isUsersLoading: false,
   isMessagesLoading: false,
 
@@ -191,6 +192,62 @@ export const useChatStore = create((set, get) => ({
   },
 
   // =========================
+  // ✏️ EDIT MESSAGE TEXT
+  // =========================
+  editMessageText: async (messageId, text) => {
+    try {
+      const res = await axiosInstance.put(`/messages/edit/${messageId}`, { text });
+      const updatedMessage = res.data;
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === updatedMessage._id ? updatedMessage : msg,
+        ),
+      }));
+      return updatedMessage;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message ||
+        "Edit failed";
+      toast.error(msg);
+      throw error;
+    }
+  },
+
+  // =========================
+  // 😀 REACT MESSAGE (toggle)
+  // =========================
+  reactToMessage: async (messageId, emoji) => {
+    if (!messageId) return;
+    const e = typeof emoji === "string" ? emoji.trim() : "";
+    if (!e) return;
+    set({ isReacting: true });
+    try {
+      const res = await axiosInstance.put(`/messages/react/${messageId}`, {
+        emoji: e,
+      });
+      const updatedMessage = res.data;
+      set((state) => ({
+        messages: state.messages.map((m) =>
+          m._id === updatedMessage._id ? updatedMessage : m,
+        ),
+      }));
+      return updatedMessage;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        error.message ||
+        "React failed";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isReacting: false });
+    }
+  },
+
+  // =========================
   // SOCKET SUBSCRIBE
   // =========================
   subscribeToMessages: () => {
@@ -295,6 +352,26 @@ export const useChatStore = create((set, get) => ({
         ),
       }));
     });
+
+    // ✏️ MESSAGE EDIT
+    socket.off("messageEdited");
+    socket.on("messageEdited", (updatedMessage) => {
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === updatedMessage._id ? updatedMessage : msg,
+        ),
+      }));
+    });
+
+    // 😀 MESSAGE REACTION UPDATE
+    socket.off("messageReactionUpdated");
+    socket.on("messageReactionUpdated", (updatedMessage) => {
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg._id === updatedMessage._id ? updatedMessage : msg,
+        ),
+      }));
+    });
   },
 
   // =========================
@@ -307,6 +384,8 @@ export const useChatStore = create((set, get) => ({
     socket.off("stopTyping");
     socket.off("messageRecalled"); // 🔥 thêm dòng này
     socket.off("messageRecalledMe");
+    socket.off("messageEdited");
+    socket.off("messageReactionUpdated");
 
     const t = get()._typingTimer;
     if (t) clearTimeout(t);

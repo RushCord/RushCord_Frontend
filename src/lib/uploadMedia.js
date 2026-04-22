@@ -11,7 +11,11 @@ export async function uploadFileViaPresign(file, purpose) {
     throw new Error("Not authenticated");
   }
 
-  const contentType = file.type || "application/octet-stream";
+  // MediaRecorder and some browsers may include parameters like:
+  // "audio/webm;codecs=opus" or "application/pdf;charset=binary".
+  // Backend whitelist expects bare "type/subtype" and S3 presigned PUT must match it.
+  const rawType = file.type || "application/octet-stream";
+  const contentType = String(rawType).split(";")[0].trim() || "application/octet-stream";
 
   const res = await fetch(`${apiBaseURL}/media/presigned-upload`, {
     method: "POST",
