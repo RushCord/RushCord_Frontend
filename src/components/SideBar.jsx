@@ -38,13 +38,11 @@ const Sidebar = () => {
 
   const recentConversationsList = (() => {
     const items = Array.isArray(conversations) ? conversations : [];
-    const sorted = items
-      .slice()
-      .sort((a, b) => {
-        const ta = String(a?.lastMessageAt || a?.lastMessage?.createdAt || "");
-        const tb = String(b?.lastMessageAt || b?.lastMessage?.createdAt || "");
-        return tb.localeCompare(ta);
-      });
+    const sorted = items.slice().sort((a, b) => {
+      const ta = String(a?.lastMessageAt || a?.lastMessage?.createdAt || "");
+      const tb = String(b?.lastMessageAt || b?.lastMessage?.createdAt || "");
+      return tb.localeCompare(ta);
+    });
     return sorted.slice(0, 10);
   })();
 
@@ -83,7 +81,9 @@ const Sidebar = () => {
   })();
 
   const friendMatches = (() => {
-    const q = String(friendSearch || "").trim().toLowerCase();
+    const q = String(friendSearch || "")
+      .trim()
+      .toLowerCase();
     if (!q) return [];
     const items = Array.isArray(friends) ? friends : [];
     const mapped = items
@@ -118,7 +118,9 @@ const Sidebar = () => {
               <div className="flex size-8 items-center justify-center rounded-2xl bg-primary/15 text-primary">
                 <Users className="size-4" />
               </div>
-              <span className="truncate text-sm font-semibold">Conversations</span>
+              <span className="truncate text-sm font-semibold">
+                Conversations
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-1">
@@ -151,7 +153,9 @@ const Sidebar = () => {
                 ) : (
                   <div className="discord-scroll max-h-64 overflow-y-auto p-2">
                     {friendMatches.map((m) => {
-                      const isOnline = onlineUsers.includes(String(m.otherUserId));
+                      const isOnline = onlineUsers.includes(
+                        String(m.otherUserId),
+                      );
                       return (
                         <button
                           key={m.otherUserId}
@@ -225,9 +229,15 @@ const Sidebar = () => {
                 const previewBody = (() => {
                   if (last?.isRecalled) return "Tin nhắn đã bị thu hồi";
                   if (last?.isDeletedForMe) return "Đã ẩn tin nhắn";
-                  if (typeof last?.text === "string" && last.text.trim().length > 0)
+                  if (
+                    typeof last?.text === "string" &&
+                    last.text.trim().length > 0
+                  )
                     return last.text;
-                  if (last?.image || (Array.isArray(last?.images) && last.images.length > 0))
+                  if (
+                    last?.image ||
+                    (Array.isArray(last?.images) && last.images.length > 0)
+                  )
                     return "[Hình ảnh]";
                   if (last?.file) return "[Tệp]";
                   return "";
@@ -240,11 +250,13 @@ const Sidebar = () => {
                   const senderName =
                     sid && me && sid === me
                       ? "Bạn"
-                      : users.find((u) => String(u._id) === sid)?.fullName || "Ai đó";
+                      : users.find((u) => String(u._id) === sid)?.fullName ||
+                        "Ai đó";
                   return `${senderName}: ${previewBody}`;
                 })();
 
-                const timeRaw = c?.lastMessageAt || c?.lastMessage?.createdAt || "";
+                const timeRaw =
+                  c?.lastMessageAt || c?.lastMessage?.createdAt || "";
                 const timeLabel = timeRaw ? formatMessageTime(timeRaw) : "";
 
                 return (
@@ -273,7 +285,9 @@ const Sidebar = () => {
                     </div>
                     <div className="conversation-meta min-w-0 flex-1 text-left">
                       <div className="flex items-center gap-2">
-                        <div className="conversation-primary text-sm font-medium truncate">{title}</div>
+                        <div className="conversation-primary text-sm font-medium truncate">
+                          {title}
+                        </div>
                         {timeLabel ? (
                           <div className="conversation-time ml-auto shrink-0 text-[11px] text-base-content/50 tabular-nums">
                             {timeLabel}
@@ -387,9 +401,14 @@ const Sidebar = () => {
                   className="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
                   disabled={!String(memberEmail || "").trim()}
                   onClick={() => {
-                    const email = String(memberEmail || "").trim().toLowerCase();
+                    const email = String(memberEmail || "")
+                      .trim()
+                      .toLowerCase();
                     const u = users.find(
-                      (x) => String(x?.email || "").trim().toLowerCase() === email,
+                      (x) =>
+                        String(x?.email || "")
+                          .trim()
+                          .toLowerCase() === email,
                     );
                     if (!u?._id) {
                       toast.error("Không tìm thấy người dùng với email này");
@@ -461,7 +480,9 @@ const Sidebar = () => {
                     </div>
                   ) : (
                     recentDmUserIds.map((uid) => {
-                      const u = users.find((x) => String(x._id) === String(uid));
+                      const u = users.find(
+                        (x) => String(x._id) === String(uid),
+                      );
                       const checked = memberIds.includes(uid);
                       const name = u?.fullName || "User";
                       const email = u?.email || "";
@@ -482,7 +503,9 @@ const Sidebar = () => {
                                   ? cur.includes(uid)
                                     ? cur
                                     : [...cur, uid]
-                                  : cur.filter((x) => String(x) !== String(uid));
+                                  : cur.filter(
+                                      (x) => String(x) !== String(uid),
+                                    );
                               });
                             }}
                           />

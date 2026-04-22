@@ -255,6 +255,7 @@ body {
 .conversation-label,
 .conversation-expanded-only,
 .conversation-time {
+
   transition: opacity 150ms ease, width 150ms ease, margin 150ms ease;
 }
 
@@ -578,7 +579,10 @@ body {
   .conversation-sidebar .conversation-label,
   .conversation-sidebar .conversation-primary,
   .conversation-sidebar .conversation-secondary,
+<<<<<<< HEAD
   .conversation-sidebar .conversation-time,
+=======
+>>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
   .conversation-sidebar .conversation-expanded-only {
     width: 0;
     min-width: 0;
