@@ -595,7 +595,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`discord-icon-button hidden size-10 items-center justify-center rounded-full md:flex ${
+            className={`discord-icon-button flex size-10 items-center justify-center rounded-full ${
               isRecording ? "bg-red-500/15 text-red-300" : ""
             }`}
             onClick={isRecording ? stopRecording : startRecording}
