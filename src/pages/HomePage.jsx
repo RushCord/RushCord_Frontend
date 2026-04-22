@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { useChatStore } from "../store/useChatStore";
 
 import { useAuthStore } from "../store/useAuthStore";
-import Sidebar from "../components/Sidebar";
+import Sidebar from "../components/SideBar";
 
 import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
