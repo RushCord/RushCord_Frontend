@@ -180,8 +180,8 @@ export const useAuthStore = create((set, get) => ({
       set({ onlineUsers: userIds });
     });
 
-    socket.on("incomingCall", ({ from, offer }) => {
-      set({ incomingCall: { from, offer } });
+    socket.on("incomingCall", ({ from, roomName }) => {
+      set({ incomingCall: { from, roomName } });
     });
 
     socket.on("hangup", ({ from }) => {

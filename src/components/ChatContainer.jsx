@@ -128,7 +128,7 @@ const ChatContainer = () => {
   const [isCalling, setIsCalling] = useState(false);
   // The actual peer we are calling / answering. Avoids races with selectedUser updates.
   const [callPeerId, setCallPeerId] = useState(null);
-  const [incomingOffer, setIncomingOffer] = useState(null);
+  const [callRoomName, setCallRoomName] = useState(null);
   const [endSignal, setEndSignal] = useState(0);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
@@ -236,7 +236,7 @@ const ChatContainer = () => {
   useEffect(() => {
     setIsCalling(false);
     setCallPeerId(null);
-    setIncomingOffer(null);
+    setCallRoomName(null);
     setEndSignal(0);
   }, [selectedUser?._id]);
 
@@ -260,9 +260,16 @@ const ChatContainer = () => {
         <ChatHeader
           onCall={() => {
             if (!selectedUser?._id) return;
+            const roomName = (() => {
+              const a = String(authUser?._id || "");
+              const b = String(selectedUser._id || "");
+              const [x, y] = [a, b].sort();
+              return `DM#${x}#${y}`;
+            })();
             setCallPeerId(selectedUser._id);
-            setIncomingOffer(null);
+            setCallRoomName(roomName);
             setIsCalling(true);
+            if (socket) socket.emit("callInvite", { to: selectedUser._id, roomName });
           }}
           callDisabled={!selectedUser}
         />
@@ -277,44 +284,56 @@ const ChatContainer = () => {
       <ChatHeader
         onCall={() => {
           if (!selectedUser?._id) return;
+          const roomName = (() => {
+            const a = String(authUser?._id || "");
+            const b = String(selectedUser._id || "");
+            const [x, y] = [a, b].sort();
+            return `DM#${x}#${y}`;
+          })();
           setCallPeerId(selectedUser._id);
-          setIncomingOffer(null);
+          setCallRoomName(roomName);
           setIsCalling(true);
+          if (socket) socket.emit("callInvite", { to: selectedUser._id, roomName });
         }}
         callDisabled={!selectedUser}
       />
 
       {/* VIDEO CALL */}
       {isCalling && selectedUser && (
-        <div className="absolute inset-0 bg-black/90 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="w-full max-w-6xl h-[90vh] bg-gray-900 rounded-lg p-4 m-4 shadow-2xl flex flex-col">
-            <div className="flex justify-between items-center mb-4 shrink-0">
-              <h1 className="text-white text-xl font-bold">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-gray-900 rounded-xl shadow-2xl border border-white/10 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
+              <h1 className="text-white text-base sm:text-lg font-semibold truncate">
                 Video Call with{" "}
                 <span className="text-blue-400">{selectedUser?.fullName}</span>
               </h1>
               <button
+                type="button"
                 onClick={() => setEndSignal((n) => n + 1)}
-                className="text-gray-400 hover:text-white text-2xl"
+                className="text-gray-300 hover:text-white text-xl leading-none px-2"
+                aria-label="Close call"
+                title="Đóng"
               >
                 ✕
               </button>
             </div>
 
-            <div className="flex-1 min-h-0">
-              <VideoCall
-                myId={authUser._id}
-                remoteId={callPeerId || selectedUser._id}
-                incomingOffer={incomingOffer}
-                autoStart={!incomingOffer}
-                forceEndSignal={endSignal}
-                onEnd={() => {
-                  setIsCalling(false);
-                  setIncomingOffer(null);
-                  setCallPeerId(null);
-                  setEndSignal(0);
-                }}
-              />
+            <div className="p-3 sm:p-4">
+              <div className="w-full">
+                <VideoCall
+                  myId={authUser._id}
+                  remoteId={callPeerId || selectedUser._id}
+                  roomName={callRoomName}
+                  autoStart={true}
+                  forceEndSignal={endSignal}
+                  onEnd={() => {
+                    setIsCalling(false);
+                    setCallRoomName(null);
+                    setCallPeerId(null);
+                    setEndSignal(0);
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -342,10 +361,15 @@ const ChatContainer = () => {
 
                   // Ensure VideoCall mounts with the correct peer id even if selectedUser updates later.
                   setCallPeerId(incomingCall.from);
-                  setIncomingOffer(incomingCall.offer);
+                  setCallRoomName(incomingCall.roomName || null);
                   setSelectedUser(caller);
                   clearIncomingCall();
                   setIsCalling(true);
+                  if (socket)
+                    socket.emit("callAccept", {
+                      to: incomingCall.from,
+                      roomName: incomingCall.roomName,
+                    });
                 }}
                 className="bg-green-600 text-white px-3 py-1 rounded"
               >
@@ -355,9 +379,9 @@ const ChatContainer = () => {
               <button
                 onClick={() => {
                   if (socket)
-                    socket.emit("hangup", {
+                    socket.emit("callReject", {
                       to: incomingCall.from,
-                      from: authUser._id,
+                      roomName: incomingCall.roomName,
                     });
 
                   clearIncomingCall();
