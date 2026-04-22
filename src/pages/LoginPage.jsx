@@ -1,9 +1,10 @@
-import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import React from "react";
 import { Link } from "react-router-dom";
 import AuthImagePattern from "../components/AuthImagePattern";
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
+import logoImg from "../assets/logo.png";
 
 export const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -19,18 +20,15 @@ export const LoginPage = () => {
   };
 
   return (
-    <div className="h-screen grid lg:grid-cols-2">
-      {/* Left Side - Form */}
-      <div className="flex flex-col justify-center items-center p-6 sm:p-12">
-        <div className="w-full max-w-md space-y-8">
-          {/* Logo */}
-          <div className="text-center mb-8">
+    <div className="min-h-screen bg-[var(--discord-app)] lg:grid lg:grid-cols-2">
+      <div className="flex items-center justify-center p-6 sm:p-12">
+        <div className="discord-card w-full max-w-md p-8">
+          <div className="mb-8 text-center">
             <div className="flex flex-col items-center gap-2 group">
               <div
-                className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20
-              transition-colors"
+                className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25"
               >
-                <MessageSquare className="w-6 h-6 text-primary" />
+                <img src={logoImg} alt="RushCord logo" className="h-8 w-8 rounded-lg object-cover" />
               </div>
               <h1 className="text-2xl font-bold mt-2">Welcome Back</h1>
               <p className="text-base-content/60">Sign in to your account</p>
@@ -49,7 +47,7 @@ export const LoginPage = () => {
                 </div>
                 <input
                   type="email"
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) =>
@@ -69,7 +67,7 @@ export const LoginPage = () => {
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) =>
@@ -92,7 +90,7 @@ export const LoginPage = () => {
 
             <button
               type="submit"
-              className="btn btn-primary w-full"
+              className="btn btn-primary h-12 w-full rounded-lg border-0"
               disabled={isLoggingIn}
             >
               {isLoggingIn ? (
@@ -123,7 +121,6 @@ export const LoginPage = () => {
         </div>
       </div>
 
-      {/* Right Side - Image/Pattern */}
       <AuthImagePattern
         title={"Welcome back!"}
         subtitle={

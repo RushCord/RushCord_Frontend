@@ -1,4 +1,4 @@
-import { Phone, X } from "lucide-react";
+import { ArrowLeft, Hash, Phone, Pin, Search, Settings2, Users, X } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 import { axiosInstance } from "../lib/axios";
@@ -210,6 +210,34 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
     return () => document.removeEventListener("mousedown", close);
   }, [memberMenu]);
 
+  useEffect(() => {
+    const hasMobileOverlay =
+      showSettings ||
+      showRenameModal ||
+      showAvatarModal ||
+      showAddMemberModal ||
+      showRoleModal ||
+      showRemoveConfirm;
+    document.body.classList.toggle("mobile-overlay-active", hasMobileOverlay);
+    return () => {
+      document.body.classList.remove("mobile-overlay-active");
+    };
+  }, [
+    showSettings,
+    showRenameModal,
+    showAvatarModal,
+    showAddMemberModal,
+    showRoleModal,
+    showRemoveConfirm,
+  ]);
+
+  useEffect(() => {
+    document.body.classList.toggle("group-settings-open", showSettings);
+    return () => {
+      document.body.classList.remove("group-settings-open");
+    };
+  }, [showSettings]);
+
   const roleTarget = roleTargetUserId
     ? members.find((x) => String(x.userId) === String(roleTargetUserId))
     : null;
@@ -219,26 +247,64 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
     : null;
 
   return (
-    <div className="p-2.5 border-b border-base-300">
-      <div className="flex items-center justify-between">
+    <div className="discord-topbar mobile-chat-header px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          {/* Avatar */}
-          <div className="avatar">
-            <div className="size-10 rounded-full relative">
-              <img src={avatarUrl} alt={title} />
-            </div>
+          <button
+            type="button"
+            onClick={() => setSelectedConversation(null)}
+            aria-label="Back to messages"
+            title="Back"
+            className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5 md:hidden"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <div className="flex size-9 items-center justify-center rounded-full bg-white/5 text-base-content/70">
+            {selectedConversation?.type === "GROUP" ? (
+              <Hash className="size-4" />
+            ) : (
+              <img src={avatarUrl} alt={title} className="size-9 rounded-full object-cover" />
+            )}
           </div>
 
-          {/* User info */}
           <div>
-            <h3 className="font-medium">{title}</h3>
-            <p className="text-sm text-base-content/70">
-              {selectedConversation?.type === "DM" ? (online ? "Online" : "Offline") : "Group"}
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">{title}</h3>
+              {selectedConversation?.type === "GROUP" && (
+                <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-base-content/60">
+                  text
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-base-content/60">
+              {selectedConversation?.type === "DM"
+                ? online
+                  ? "Online now"
+                  : "Offline"
+                : "Group conversation"}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled
+            className="discord-icon-button hidden size-9 items-center justify-center rounded-full md:flex disabled:opacity-40"
+            title="Pinned messages"
+            aria-label="Pinned messages"
+          >
+            <Pin className="size-4" />
+          </button>
+          <button
+            type="button"
+            disabled
+            className="discord-icon-button hidden size-9 items-center justify-center rounded-full md:flex disabled:opacity-40"
+            title="Search"
+            aria-label="Search"
+          >
+            <Search className="size-4" />
+          </button>
           <button
             type="button"
             onClick={onCall}
@@ -259,42 +325,65 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
           {selectedConversation?.type === "GROUP" && (
             <button
               type="button"
-              className="btn btn-sm btn-circle bg-base-200 hover:bg-base-300 border border-base-300 text-base-content"
-              title="Tùy chỉnh đoạn chat"
-              aria-label="Chat settings"
-              onClick={() => setShowSettings(true)}
+              className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
+              title="Members and settings"
+              aria-label="Members and settings"
+              onClick={() => setShowSettings((prev) => !prev)}
             >
-              !
+              <Users className="size-4" />
             </button>
           )}
 
-          {/* Close button */}
-          <button type="button" onClick={() => setSelectedConversation(null)} aria-label="Close">
-            <X />
+          <button
+            type="button"
+            onClick={() => setShowSettings((prev) => !prev)}
+            className={`discord-icon-button hidden size-9 items-center justify-center rounded-full bg-white/5 lg:flex ${
+              showSettings ? "is-active" : ""
+            }`}
+            aria-label="Toggle details"
+            title="Toggle details"
+          >
+            <Settings2 className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedConversation(null)}
+            aria-label="Close"
+            className="discord-icon-button hidden size-9 items-center justify-center rounded-full bg-white/5 md:flex"
+          >
+            <X className="size-4" />
           </button>
         </div>
       </div>
 
       {showSettings && selectedConversation?.type === "GROUP" && (
-        <div className="fixed inset-0 z-[80]" role="presentation">
-          {/* Overlay */}
+        <div className="fixed inset-0 z-[400] md:pointer-events-none" role="presentation">
           <div
-            className="absolute inset-0 bg-black/50"
+            className="discord-modal-scrim absolute inset-0 md:hidden"
             onClick={() => setShowSettings(false)}
           />
 
-          {/* Right sidebar */}
           <div
-            className="absolute top-0 right-0 h-full w-full max-w-md bg-base-100 border-l border-base-300 shadow-2xl"
+            className="mobile-group-settings-drawer desktop-group-settings-drawer absolute right-0 top-0 h-full w-full max-w-md border-l border-white/10 bg-[var(--discord-sidebar)] shadow-2xl md:pointer-events-auto"
             role="dialog"
             aria-modal="true"
           >
             <div className="h-full flex flex-col">
-              <div className="flex items-center justify-between gap-3 p-4 border-b border-base-300">
-                <h2 className="text-base-content font-semibold">Tùy chỉnh đoạn chat</h2>
+              <div className="discord-topbar flex items-center justify-between gap-3 p-4">
+                <div>
+                  <div className="discord-section-title mb-1">Members</div>
+                  <h2 className="text-base-content font-semibold">Tuy chinh doan chat</h2>
+                </div>
+                <button
+                  type="button"
+                  className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
+                  onClick={() => setShowSettings(false)}
+                >
+                  <X className="size-4" />
+                </button>
               </div>
 
-              <div className="p-4 flex-1 overflow-y-auto">
+              <div className="discord-scroll p-4 flex-1 overflow-y-auto">
                 {settingsHelp ? (
                   <div className="text-xs text-base-content/60 mb-3">
                     {settingsHelp}
@@ -303,10 +392,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
 
                 {/* Collapsible sections */}
                 <div className="space-y-3">
-                  <div className="border border-base-300 rounded-lg overflow-hidden">
+                  <div className="overflow-hidden rounded-lg border border-white/10 bg-black/10">
                     <button
                       type="button"
-                      className="w-full flex items-center justify-between px-3 py-3 hover:bg-base-200/60 transition"
+                      className="w-full flex items-center justify-between px-3 py-3 hover:bg-white/5 transition"
                       onClick={() =>
                         setExpandedSection((s) => (s === "chatSettings" ? null : "chatSettings"))
                       }
@@ -323,7 +412,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                       <div className="px-3 pb-3 space-y-2">
                         <button
                           type="button"
-                          className="btn btn-sm w-full justify-start"
+                          className="btn btn-sm w-full justify-start rounded-lg border-0 bg-white/5 hover:bg-white/10"
                           disabled={!canEdit}
                           onClick={() => setShowRenameModal(true)}
                         >
@@ -331,19 +420,19 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                         </button>
                         <button
                           type="button"
-                          className="btn btn-sm w-full justify-start"
+                          className="btn btn-sm w-full justify-start rounded-lg border-0 bg-white/5 hover:bg-white/10"
                           disabled={!canEdit}
                           onClick={() => setShowAvatarModal(true)}
                         >
                           Thay đổi ảnh
                         </button>
 
-                        <div className="pt-2 border-t border-base-300" />
+                        <div className="pt-2 border-t border-white/10" />
 
                         {myRole === "OWNER" ? (
                           <button
                             type="button"
-                            className="btn btn-sm btn-error w-full justify-start"
+                            className="btn btn-sm btn-error w-full justify-start rounded-lg"
                             onClick={dissolveGroup}
                           >
                             Giải tán nhóm
@@ -351,7 +440,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                         ) : (
                           <button
                             type="button"
-                            className="btn btn-sm w-full justify-start"
+                            className="btn btn-sm w-full justify-start rounded-lg border-0 bg-white/5 hover:bg-white/10"
                             onClick={leaveGroup}
                           >
                             Thoát khỏi đoạn chat
@@ -363,10 +452,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                     )}
                   </div>
 
-                  <div className="border border-base-300 rounded-lg overflow-hidden">
+                  <div className="overflow-hidden rounded-lg border border-white/10 bg-black/10">
                     <button
                       type="button"
-                      className="w-full flex items-center justify-between px-3 py-3 hover:bg-base-200/60 transition"
+                      className="w-full flex items-center justify-between px-3 py-3 hover:bg-white/5 transition"
                       onClick={async () => {
                         setExpandedSection((s) => (s === "members" ? null : "members"));
                         // lazy load when opening
@@ -429,10 +518,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                                   <img
                                     src={avatar}
                                     alt={name}
-                                    className="size-9 rounded-full object-cover border border-base-300"
+                                    className="size-9 rounded-full object-cover border border-white/10"
                                   />
                                   {isOnline && (
-                                    <span className="absolute bottom-0 right-0 size-3 bg-green-500 rounded-full ring-2 ring-base-100" />
+                                    <span className="discord-status-dot" />
                                   )}
                                 </div>
                                 <div className="min-w-0">
@@ -452,7 +541,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                                   <div className="ml-auto relative">
                                     <button
                                       type="button"
-                                      className="btn btn-xs"
+                                      className="btn btn-xs rounded-md border-0 bg-white/5 hover:bg-white/10"
                                       disabled={!canManageTarget || isMemberActionLoading}
                                       onClick={(e) => {
                                         const r = e.currentTarget.getBoundingClientRect();
@@ -487,7 +576,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                             return (
                               <button
                                 type="button"
-                                className="btn btn-sm w-full justify-start mt-2"
+                                className="btn btn-sm mt-2 w-full justify-start rounded-lg border-0 bg-primary/85 text-primary-content hover:bg-primary"
                                 disabled={!canAdd || isMemberActionLoading}
                                 onClick={() => setShowAddMemberModal(true)}
                               >
@@ -512,14 +601,14 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Rename modal */}
       {showRenameModal && selectedConversation?.type === "GROUP" && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[90] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[420] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRenameModal(false);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl p-4"
+            className="discord-modal-card w-full max-w-md p-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -528,15 +617,15 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               <h3 className="text-base-content font-semibold">Đổi tên đoạn chat</h3>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
                 onClick={() => setShowRenameModal(false)}
               >
-                Close
+                <X className="size-4" />
               </button>
             </div>
 
             <input
-              className="input input-bordered w-full"
+              className="input discord-input-reset w-full rounded-xl border border-white/10 bg-black/10 px-4"
               value={settingsTitle}
               onChange={(e) => setSettingsTitle(e.target.value)}
               disabled={!canEdit || isSaving}
@@ -593,14 +682,14 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Avatar modal */}
       {showAvatarModal && selectedConversation?.type === "GROUP" && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[90] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[420] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAvatarModal(false);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl p-4"
+            className="discord-modal-card w-full max-w-md p-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -609,10 +698,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               <h3 className="text-base-content font-semibold">Thay đổi ảnh</h3>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
                 onClick={() => setShowAvatarModal(false)}
               >
-                Close
+                <X className="size-4" />
               </button>
             </div>
 
@@ -621,7 +710,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                 <img
                   src={settingsAvatar?.trim() ? settingsAvatar : "/avatar.png"}
                   alt="preview"
-                  className="size-12 rounded-full object-cover border border-base-300"
+                  className="size-12 rounded-full object-cover border border-white/10"
                   onError={(e) => {
                     e.currentTarget.src = "/avatar.png";
                   }}
@@ -637,7 +726,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                   <input
                     type="file"
                     accept="image/*"
-                    className="file-input file-input-bordered file-input-sm w-full"
+                    className="file-input file-input-bordered file-input-sm w-full rounded-xl"
                     disabled={!canEdit || isUploadingAvatar || isSaving}
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
@@ -726,7 +815,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Fixed member menu (not clipped by overflow) */}
       {memberMenu && (
         <div
-          className="fixed z-[200]"
+          className="fixed z-[430]"
           style={{
             left: memberMenu.x,
             top: memberMenu.y,
@@ -744,10 +833,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               (actorRole === "OWNER" || (actorRole === "ADMIN" && targetRole === "MEMBER"));
 
             return (
-              <div className="w-44 rounded-lg border border-base-300 bg-base-100 shadow-xl overflow-hidden">
+              <div className="w-44 overflow-hidden rounded-lg border border-white/10 bg-[var(--discord-panel)] shadow-xl">
                 <button
                   type="button"
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-base-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
                   disabled={!canManageTarget || isMemberActionLoading}
                   onClick={() => {
                     setRoleTargetUserId(memberMenu.userId);
@@ -760,7 +849,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                 </button>
                 <button
                   type="button"
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-base-200 text-error disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 text-error disabled:opacity-40 disabled:cursor-not-allowed"
                   disabled={!canRemove || isMemberActionLoading}
                   onClick={() => {
                     setRemoveTargetUserId(memberMenu.userId);
@@ -779,14 +868,14 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Role modal */}
       {showRoleModal && roleTargetUserId && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[210] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[440] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRoleModal(false);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl p-4"
+            className="discord-modal-card w-full max-w-md p-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -795,10 +884,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               <h3 className="font-semibold">Phân quyền</h3>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
                 onClick={() => setShowRoleModal(false)}
               >
-                Close
+                <X className="size-4" />
               </button>
             </div>
 
@@ -889,14 +978,14 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Remove confirm modal */}
       {showRemoveConfirm && removeTargetUserId && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[210] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[440] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRemoveConfirm(false);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl p-4"
+            className="discord-modal-card w-full max-w-md p-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -905,10 +994,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               <h3 className="font-semibold text-error">Xóa khỏi nhóm</h3>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
                 onClick={() => setShowRemoveConfirm(false)}
               >
-                Close
+                <X className="size-4" />
               </button>
             </div>
 
@@ -947,14 +1036,14 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       {/* Add member modal */}
       {showAddMemberModal && selectedConversation?.type === "GROUP" && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[190] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[450] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAddMemberModal(false);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl p-4"
+            className="discord-modal-card w-full max-w-md p-4"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -963,10 +1052,10 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               <h3 className="font-semibold">Thêm thành viên</h3>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
                 onClick={() => setShowAddMemberModal(false)}
               >
-                Close
+                <X className="size-4" />
               </button>
             </div>
 
@@ -1011,7 +1100,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                       <div className="text-sm font-medium mb-1">Thêm bằng email</div>
                       <div className="flex gap-2">
                         <input
-                          className="input input-bordered w-full"
+                          className="input discord-input-reset w-full rounded-xl border border-white/10 bg-black/10 px-4"
                           placeholder="Nhập email"
                           value={addMemberEmail}
                           onChange={(e) => setAddMemberEmail(e.target.value)}
@@ -1021,7 +1110,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
                         />
                         <button
                           type="button"
-                          className="btn btn-primary"
+                          className="btn btn-primary rounded-lg border-0"
                           disabled={!String(addMemberEmail || "").trim() || isMemberActionLoading}
                           onClick={async () => {
                             const email = String(addMemberEmail || "").trim().toLowerCase();

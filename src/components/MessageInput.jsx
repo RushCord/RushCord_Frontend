@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { Image, Send, X, Smile, FileText, Video, Play, Mic, Square } from "lucide-react";
+import { Paperclip, Send, X, Smile, FileText, Video, Play, Mic, Square } from "lucide-react";
 import toast from "react-hot-toast";
 import EmojiPicker from "emoji-picker-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -439,16 +439,16 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   };
 
   return (
-    <div className="p-4 w-full">
+    <div className="discord-topbar mobile-chat-input-wrap sticky bottom-0 w-full px-4 py-3">
       {editingMessage && (
-        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-zinc-700 bg-zinc-900/60 px-3 py-2">
-          <div className="text-sm text-zinc-200 truncate">
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/10 px-3 py-2">
+          <div className="truncate text-sm text-base-content">
             Đang chỉnh sửa:{" "}
-            <span className="text-zinc-400">{editingMessage.text || ""}</span>
+            <span className="text-base-content/50">{editingMessage.text || ""}</span>
           </div>
           <button
             type="button"
-            className="btn btn-xs"
+            className="btn btn-xs rounded-md border-0 bg-white/5 hover:bg-white/10"
             onClick={() => {
               setText("");
               if (typeof onCancelEdit === "function") onCancelEdit();
@@ -466,11 +466,11 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
                 <img
                   src={p.url}
                   alt="Preview"
-                  className="w-20 h-20 object-cover rounded-lg border border-zinc-700"
+                  className="h-20 w-20 rounded-xl border border-white/10 object-cover"
                 />
               )}
               {p.kind === "video" && (
-                <div className="w-20 h-20 rounded-lg border border-zinc-700 bg-zinc-900 flex items-center justify-center overflow-hidden">
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/20">
                   {p.url ? (
                     <div className="relative w-full h-full">
                       <img
@@ -479,24 +479,24 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
                         className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-7 h-7 rounded-full bg-black/50 flex items-center justify-center">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-black/50">
                           <Play className="w-4 h-4 text-white ml-0.5" />
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <Video className="w-6 h-6 text-zinc-400" />
+                    <Video className="w-6 h-6 text-base-content/50" />
                   )}
                 </div>
               )}
               {(p.kind === "pdf" || p.kind === "doc" || p.kind === "docx") && (
-                <div className="w-20 rounded-lg border border-zinc-700 bg-zinc-900 flex flex-col items-center justify-center gap-1 p-1">
-                  <FileText className="w-6 h-6 text-zinc-400" />
-                  <span className="text-[10px] text-zinc-400">
+                <div className="flex w-20 flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
+                  <FileText className="w-6 h-6 text-base-content/50" />
+                  <span className="text-[10px] text-base-content/50">
                     {p.kind.toUpperCase()}
                   </span>
                   <span
-                    className="text-[10px] text-zinc-300 max-w-[72px] truncate"
+                    className="max-w-[72px] truncate text-[10px] text-base-content/80"
                     title={p.name}
                   >
                     {p.name}
@@ -504,11 +504,11 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
                 </div>
               )}
               {p.kind === "audio" && (
-                <div className="w-20 rounded-lg border border-zinc-700 bg-zinc-900 flex flex-col items-center justify-center gap-1 p-1">
-                  <Mic className="w-6 h-6 text-zinc-400" />
-                  <span className="text-[10px] text-zinc-400">AUDIO</span>
+                <div className="flex w-20 flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
+                  <Mic className="w-6 h-6 text-base-content/50" />
+                  <span className="text-[10px] text-base-content/50">AUDIO</span>
                   <span
-                    className="text-[10px] text-zinc-300 max-w-[72px] truncate"
+                    className="max-w-[72px] truncate text-[10px] text-base-content/80"
                     title={p.name}
                   >
                     {p.name}
@@ -517,7 +517,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
               )}
               <button
                 onClick={() => removeFileAt(idx)}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-base-300 flex items-center justify-center"
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--discord-danger)] text-white"
                 type="button"
               >
                 <X className="size-3" />
@@ -527,11 +527,22 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         </div>
       )}
 
-      <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-        <div className="flex-1 flex gap-2">
+      <form onSubmit={handleSendMessage} className="discord-composer flex items-center gap-2 px-3 py-3">
+        <div className="flex flex-1 items-center gap-2">
+          <button
+            type="button"
+            className={`discord-icon-button flex size-10 items-center justify-center rounded-full ${
+              previews.length > 0 ? "is-active" : ""
+            }`}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!!editingMessage}
+            title="Attach files"
+          >
+            <Paperclip size={18} />
+          </button>
           <input
             type="text"
-            className="w-full input input-bordered rounded-lg input-sm sm:input-md"
+            className="discord-input-reset h-11 w-full text-sm sm:text-[15px]"
             placeholder={
               editingMessage
                 ? "Edit message..."
@@ -580,21 +591,12 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
             onChange={handleFileChange}
           />
 
-          <button
-            type="button"
-            className={`hidden sm:flex btn btn-circle
-                     ${previews.length > 0 ? "text-emerald-500" : "text-zinc-400"}`}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!!editingMessage}
-          >
-            <Image size={20} />
-          </button>
         </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`hidden sm:flex btn btn-circle ${
-              isRecording ? "text-red-400" : "text-zinc-400"
+            className={`discord-icon-button hidden size-10 items-center justify-center rounded-full md:flex ${
+              isRecording ? "bg-red-500/15 text-red-300" : ""
             }`}
             onClick={isRecording ? stopRecording : startRecording}
             disabled={!!editingMessage}
@@ -603,7 +605,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
             {isRecording ? <Square size={20} /> : <Mic size={20} />}
           </button>
           {isRecording && (
-            <span className="hidden sm:inline text-xs text-red-300 tabular-nums">
+            <span className="hidden text-xs tabular-nums text-red-300 sm:inline">
               REC {Math.floor(recordMs / 1000)}s
             </span>
           )}
@@ -611,8 +613,9 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         <div className="relative">
           <button
             type="button"
-            className="hidden sm:flex btn btn-circle text-zinc-400"
+            className="discord-icon-button flex size-10 items-center justify-center rounded-full"
             onClick={() => setShowEmoji((prev) => !prev)}
+            title="Emoji"
           >
             <Smile size={20} />
           </button>
@@ -630,10 +633,10 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         </div>
         <button
           type="submit"
-          className="btn btn-sm btn-circle"
+          className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-content transition-transform duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isAiBusy || isRecording || (!text.trim() && files.length === 0)}
         >
-          <Send size={22} />
+          <Send size={18} />
         </button>
       </form>
     </div>

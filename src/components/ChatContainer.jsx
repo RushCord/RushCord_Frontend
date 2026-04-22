@@ -260,6 +260,13 @@ const ChatContainer = () => {
     return () => clearTimeout(timeout);
   }, [messages]);
 
+  useEffect(() => {
+    document.body.classList.toggle("mobile-video-call-active", isCalling);
+    return () => {
+      document.body.classList.remove("mobile-video-call-active");
+    };
+  }, [isCalling]);
+
   // =========================
   // LOADING
   // =========================
@@ -302,7 +309,7 @@ const ChatContainer = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-auto relative">
+    <div className="relative flex flex-1 flex-col overflow-hidden bg-[var(--discord-chat)]">
       <ChatHeader
         onCall={() => {
           if (!selectedConversation) return;
@@ -335,9 +342,9 @@ const ChatContainer = () => {
 
       {/* VIDEO CALL */}
       {isCalling && selectedConversation && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl bg-base-100 rounded-xl shadow-2xl border border-base-300 overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-base-300">
+        <div className="discord-modal-scrim fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="discord-modal-card w-full max-w-4xl overflow-hidden">
+            <div className="discord-topbar flex items-center justify-between gap-3 px-4 py-3">
               <h1 className="text-base-content text-base sm:text-lg font-semibold truncate">
                 {selectedConversation?.type === "GROUP" ? (
                   <>
@@ -356,11 +363,11 @@ const ChatContainer = () => {
               <button
                 type="button"
                 onClick={() => setEndSignal((n) => n + 1)}
-                className="text-base-content/70 hover:text-base-content text-xl leading-none px-2"
+                className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
                 aria-label="Close call"
                 title="Đóng"
               >
-                ✕
+                <MoreHorizontal className="size-4 rotate-45" />
               </button>
             </div>
 
@@ -406,7 +413,7 @@ const ChatContainer = () => {
 
       {/* INCOMING CALL */}
       {incomingCall && (
-        <div className="fixed top-4 right-4 z-60 bg-base-100/90 backdrop-blur p-3 rounded-lg border border-base-300 shadow-lg">
+        <div className="discord-modal-card fixed right-4 top-4 z-60 p-3">
           <div className="flex items-center gap-3">
             <div className="flex-1 text-base-content">
               {(() => {
@@ -483,7 +490,7 @@ const ChatContainer = () => {
                       roomName: incomingCall.roomName,
                     });
                 }}
-                className="btn btn-success btn-sm"
+                className="btn btn-success btn-sm rounded-md"
               >
                 Accept
               </button>
@@ -499,7 +506,7 @@ const ChatContainer = () => {
                     });
                   clearIncomingCall();
                 }}
-                className="btn btn-error btn-sm"
+                className="btn btn-error btn-sm rounded-md"
               >
                 Decline
               </button>
@@ -509,10 +516,10 @@ const ChatContainer = () => {
       )}
 
       {/* MESSAGES */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="discord-scroll mobile-chat-scroll flex-1 overflow-y-auto px-5 py-6 space-y-4">
         {selectedConversation?.type === "DM" && messages.length === 0 && (
           <div className="flex justify-center pt-6">
-            <div className="max-w-[95%] sm:max-w-[520px] text-center rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-sm text-base-content/80">
+            <div className="max-w-[95%] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm text-base-content/80 sm:max-w-[520px]">
               {(() => {
                 const otherId = selectedConversation?.otherUserId;
                 const otherName =
@@ -537,14 +544,14 @@ const ChatContainer = () => {
               ref={index === messages.length - 1 ? messageEndRef : null}
               className="flex justify-center"
             >
-              <div className="px-3 py-1 rounded-full bg-base-200 border border-base-300 text-xs text-base-content/70 max-w-[90%] text-center">
+              <div className="max-w-[90%] rounded-full border border-white/10 bg-white/5 px-3 py-1 text-center text-xs text-base-content/70">
                 {message.text || ""}
               </div>
             </div>
           ) : (
           <div
             key={message._id}
-            className={`chat group ${
+            className={`chat message-row group px-1 ${
               message.senderId === authUser._id ? "chat-end" : "chat-start"
             }`}
             ref={index === messages.length - 1 ? messageEndRef : null}
@@ -554,7 +561,7 @@ const ChatContainer = () => {
             */}
             {/* AVATAR */}
             <div className="chat-image avatar">
-              <div className="size-10 rounded-full border">
+              <div className="size-10 rounded-full border border-white/10">
                 <img
                   src={
                     message.senderId === authUser._id
@@ -586,7 +593,7 @@ const ChatContainer = () => {
                     })()}
                   </span>
                 )}
-              <time className="text-xs opacity-50 ml-1">
+              <time className="ml-1 text-xs opacity-50">
                 {formatMessageTime(message.createdAt)}
               </time>
             </div>
@@ -595,7 +602,10 @@ const ChatContainer = () => {
             <div
               className={[
                 "chat-bubble flex flex-col gap-2 relative max-w-[75%] break-words",
-                message.senderId === authUser._id ? "chat-bubble-primary" : "",
+                "rounded-2xl border border-white/10 shadow-sm",
+                message.senderId === authUser._id
+                  ? "chat-bubble-primary bg-primary text-primary-content"
+                  : "bg-[var(--discord-panel)] text-base-content",
               ].join(" ")}
             >
               {!message.isRecalled &&
@@ -628,7 +638,7 @@ const ChatContainer = () => {
                     <img
                       src={message.image}
                       alt="attachment"
-                      className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90"
+                      className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90"
                       onClick={() => window.open(message.image, "_blank")}
                     />
                   )}
@@ -649,7 +659,7 @@ const ChatContainer = () => {
                           key={url}
                           src={url}
                           alt="attachment"
-                          className="w-[200px] max-w-full rounded-lg cursor-pointer hover:opacity-90 object-cover"
+                          className="w-[200px] max-w-full rounded-xl cursor-pointer object-cover hover:opacity-90"
                           onClick={() => window.open(url, "_blank")}
                         />
                       ))}
@@ -673,7 +683,7 @@ const ChatContainer = () => {
                           src={message.file}
                           controls
                           playsInline
-                          className="w-full rounded-lg border border-base-300 bg-black"
+                          className="w-full rounded-xl border border-white/10 bg-black"
                         />
                       </div>
                     ) : typeof message.contentType === "string" &&
@@ -687,10 +697,10 @@ const ChatContainer = () => {
                         href={message.file}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center gap-3 bg-base-200 hover:bg-base-300 px-3 py-2 rounded-lg transition max-w-[260px]"
+                        className="flex max-w-[260px] items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2 transition hover:bg-white/5"
                       >
                       {/* PREVIEW */}
-                      <div className="w-12 h-12 rounded-lg border border-base-300 bg-base-100 flex flex-col items-center justify-center gap-0.5 shrink-0">
+                      <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-white/5">
                         <span className="text-xl">
                           {getFileIcon(message.file)}
                         </span>
@@ -745,7 +755,7 @@ const ChatContainer = () => {
                     <button
                       type="button"
                       title="React"
-                      className="btn btn-xs btn-circle bg-base-200 hover:bg-base-300 border border-base-300"
+                      className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
                       onClick={(e) => {
                         e.stopPropagation();
                         setReactingForMessageId((id) =>
@@ -773,7 +783,7 @@ const ChatContainer = () => {
                     <button
                       type="button"
                       title="Thêm"
-                      className="btn btn-xs btn-circle bg-base-200 hover:bg-base-300 border border-base-300"
+                      className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
                       onClick={(e) => {
                         e.stopPropagation();
                         setMessageMenuId((id) =>
@@ -786,7 +796,7 @@ const ChatContainer = () => {
 
                     {messageMenuId === message._id && (
                       <ul
-                        className="absolute z-[60] bottom-full mb-1 min-w-[11rem] rounded-lg border border-base-300 bg-base-200 py-1 shadow-lg"
+                        className="absolute z-[60] bottom-full mb-1 min-w-[11rem] rounded-lg border border-white/10 bg-[var(--discord-panel)] py-1 shadow-lg"
                         data-message-menu
                         style={
                           message.senderId === authUser._id
@@ -803,7 +813,7 @@ const ChatContainer = () => {
                               message.isRecalled ||
                               !message.text
                             }
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-base-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
                             onClick={() => {
                               if (message.senderId !== authUser._id) return;
                               if (message.isDeletedForMe || message.isRecalled) return;
@@ -819,7 +829,7 @@ const ChatContainer = () => {
                           <button
                             type="button"
                             disabled={message.senderId !== authUser._id}
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-base-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
                             onClick={() => {
                               if (message.senderId !== authUser._id) return;
                               setRecallPromptMessage(message);
@@ -832,7 +842,7 @@ const ChatContainer = () => {
                         <li>
                           <button
                             type="button"
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-base-300"
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5"
                             onClick={() => {
                               handleForward(message);
                               setMessageMenuId(null);
@@ -866,7 +876,7 @@ const ChatContainer = () => {
         ))}
       </div>
       {selectedConversation && isTyping && (
-        <div className="px-4 pb-1 text-sm text-base-content/60">
+        <div className="px-5 pb-1 text-sm text-base-content/60">
           {(() => {
             const fromId = typingFromUserId;
             if (!fromId) return "Đang gõ...";
@@ -879,14 +889,14 @@ const ChatContainer = () => {
       )}
       {recallPromptMessage && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[55] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[55] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setRecallPromptMessage(null);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-md border border-base-300 shadow-xl"
+            className="discord-modal-card w-full max-w-md"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -902,16 +912,16 @@ const ChatContainer = () => {
               <button
                 type="button"
                 onClick={() => setRecallPromptMessage(null)}
-                className="text-base-content/60 hover:text-base-content shrink-0 text-xl leading-none"
+                className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
                 aria-label="Đóng"
               >
-                ✕
+                <MoreHorizontal className="size-4 rotate-45" />
               </button>
             </div>
             <div className="p-4 space-y-3">
               <button
                 type="button"
-                className="w-full text-left rounded-lg border border-base-300 bg-base-200 hover:bg-base-300 p-4 transition-colors"
+                className="w-full rounded-xl border border-white/10 bg-white/5 p-4 text-left transition-colors hover:bg-white/8"
                 onClick={async () => {
                   const id = recallPromptMessage._id;
                   setRecallPromptMessage(null);
@@ -928,7 +938,7 @@ const ChatContainer = () => {
               <button
                 type="button"
                 disabled={recallPromptMessage.isDeletedForMe}
-                className="w-full text-left rounded-lg border border-base-300 bg-base-200 hover:bg-base-300 p-4 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="w-full rounded-xl border border-white/10 bg-white/5 p-4 text-left transition-colors hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-40"
                 onClick={async () => {
                   if (recallPromptMessage.isDeletedForMe) return;
                   const id = recallPromptMessage._id;
@@ -950,16 +960,16 @@ const ChatContainer = () => {
       )}
 
       {showForwardModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-base-100 rounded-lg w-[300px] max-h-[400px] overflow-y-auto p-4 border border-base-300 shadow-xl">
+        <div className="discord-modal-scrim fixed inset-0 z-50 flex items-center justify-center">
+          <div className="discord-modal-card discord-scroll max-h-[400px] w-[320px] overflow-y-auto p-4">
             {/* HEADER */}
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-base-content font-semibold">Chọn người nhận</h2>
               <button
                 onClick={() => setShowForwardModal(false)}
-                className="text-base-content/60 hover:text-base-content"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
               >
-                ✕
+                <MoreHorizontal className="size-4 rotate-45" />
               </button>
             </div>
 
@@ -969,11 +979,11 @@ const ChatContainer = () => {
                 <div
                   key={user._id}
                   onClick={() => handleSelectUser(user._id)}
-                  className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-base-200"
+                  className="discord-list-item cursor-pointer rounded-lg"
                 >
                   <img
                     src={user.profilePic || "/avatar.png"}
-                    className="w-8 h-8 rounded-full"
+                    className="h-8 w-8 rounded-full border border-white/10"
                   />
                   <span className="text-base-content">{user.fullName}</span>
                 </div>
@@ -984,14 +994,14 @@ const ChatContainer = () => {
       )}
       {historyMessage && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[70] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setHistoryMessage(null);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-2xl border border-base-300 shadow-xl"
+            className="discord-modal-card w-full max-w-2xl"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -1007,10 +1017,10 @@ const ChatContainer = () => {
               <button
                 type="button"
                 onClick={() => setHistoryMessage(null)}
-                className="text-base-content/60 hover:text-base-content shrink-0 text-xl leading-none"
+                className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
                 aria-label="Đóng"
               >
-                ✕
+                <MoreHorizontal className="size-4 rotate-45" />
               </button>
             </div>
 
