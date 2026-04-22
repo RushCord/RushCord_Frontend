@@ -1,4 +1,3 @@
-
 import { ArrowLeft, Phone, Pin, Search, Settings2, Users, X } from "lucide-react";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
@@ -34,7 +33,6 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
   const [roleSelected, setRoleSelected] = useState("MEMBER");
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeTargetUserId, setRemoveTargetUserId] = useState(null);
-
   const [showDissolveConfirm, setShowDissolveConfirm] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [isGroupLeaveDissolveLoading, setIsGroupLeaveDissolveLoading] = useState(false);
@@ -78,7 +76,6 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
     setShowAvatarModal(false);
     setShowDissolveConfirm(false);
     setShowLeaveConfirm(false);
-
     setMembers([]);
 
     let cancelled = false;
@@ -142,16 +139,6 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
     if (!selectedConversation?.conversationId) return;
     const cidRaw = String(selectedConversation.conversationId);
     setIsGroupLeaveDissolveLoading(true);
-      // fallback toast via alert to avoid adding new deps here
-      window.alert(msg);
-    }
-  }
-
-  async function dissolveGroup() {
-    if (!selectedConversation?.conversationId) return;
-    const cidRaw = String(selectedConversation.conversationId);
-    const ok = window.confirm("Giải tán nhóm sẽ xóa nhóm với tất cả thành viên. Bạn chắc chắn chứ?");
-    if (!ok) return;
     try {
       const cid = encodeURIComponent(cidRaw);
       await axiosInstance.delete(`/conversations/${cid}`);
@@ -168,7 +155,6 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
       toast.error(msg);
     } finally {
       setIsGroupLeaveDissolveLoading(false);
-a38f2522b43d50687999ec
     }
   }
 
@@ -245,7 +231,6 @@ a38f2522b43d50687999ec
       showRemoveConfirm ||
       showDissolveConfirm ||
       showLeaveConfirm;
-
     document.body.classList.toggle("mobile-overlay-active", hasMobileOverlay);
     return () => {
       document.body.classList.remove("mobile-overlay-active");
@@ -275,7 +260,6 @@ a38f2522b43d50687999ec
   const removeTarget = removeTargetUserId
     ? members.find((x) => String(x.userId) === String(removeTargetUserId))
     : null;
-<<<<<<< HEAD
 
   const hasPortaledOverlays =
     (showSettings && selectedConversation?.type === "GROUP") ||
@@ -409,121 +393,6 @@ a38f2522b43d50687999ec
           <div data-theme={theme}>
             {showSettings && selectedConversation?.type === "GROUP" && (
         <div className="fixed inset-0 z-[2000] md:pointer-events-none" role="presentation">
-=======
-
-  return (
-    <div className="discord-topbar mobile-chat-header px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setSelectedConversation(null)}
-            aria-label="Back to messages"
-            title="Back"
-            className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5 md:hidden"
-          >
-            <ArrowLeft className="size-4" />
-          </button>
-          <div className="flex size-9 items-center justify-center rounded-full bg-white/5 text-base-content/70">
-            {selectedConversation?.type === "GROUP" ? (
-              <Hash className="size-4" />
-            ) : (
-              <img src={avatarUrl} alt={title} className="size-9 rounded-full object-cover" />
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold">{title}</h3>
-              {selectedConversation?.type === "GROUP" && (
-                <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-base-content/60">
-                  text
-                </span>
-              )}
-            </div>
-            <p className="text-xs text-base-content/60">
-              {selectedConversation?.type === "DM"
-                ? online
-                  ? "Online now"
-                  : "Offline"
-                : "Group conversation"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled
-            className="discord-icon-button hidden size-9 items-center justify-center rounded-full md:flex disabled:opacity-40"
-            title="Pinned messages"
-            aria-label="Pinned messages"
-          >
-            <Pin className="size-4" />
-          </button>
-          <button
-            type="button"
-            disabled
-            className="discord-icon-button hidden size-9 items-center justify-center rounded-full md:flex disabled:opacity-40"
-            title="Search"
-            aria-label="Search"
-          >
-            <Search className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onCall}
-            disabled={callDisabled || !selectedConversation}
-            className="btn btn-sm btn-circle bg-green-500 hover:bg-green-600 border-0 text-white disabled:opacity-50 disabled:bg-green-500 disabled:text-white"
-            title={
-              callDisabled
-                ? "Chưa chọn hội thoại"
-                : selectedConversation?.type === "GROUP"
-                  ? "Gọi nhóm"
-                  : "Gọi"
-            }
-            aria-label="Call"
-          >
-            <Phone className="w-4 h-4" />
-          </button>
-
-          {selectedConversation?.type === "GROUP" && (
-            <button
-              type="button"
-              className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
-              title="Members and settings"
-              aria-label="Members and settings"
-              onClick={() => setShowSettings((prev) => !prev)}
-            >
-              <Users className="size-4" />
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowSettings((prev) => !prev)}
-            className={`discord-icon-button hidden size-9 items-center justify-center rounded-full bg-white/5 lg:flex ${
-              showSettings ? "is-active" : ""
-            }`}
-            aria-label="Toggle details"
-            title="Toggle details"
-          >
-            <Settings2 className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedConversation(null)}
-            aria-label="Close"
-            className="discord-icon-button hidden size-9 items-center justify-center rounded-full bg-white/5 md:flex"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
-
-      {showSettings && selectedConversation?.type === "GROUP" && (
-        <div className="fixed inset-0 z-[400] md:pointer-events-none" role="presentation">
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           <div
             className="discord-modal-scrim absolute inset-0 md:hidden"
             onClick={() => setShowSettings(false)}
@@ -539,7 +408,6 @@ a38f2522b43d50687999ec
                 <div>
                   <div className="discord-section-title mb-1">Members</div>
                   <h2 className="text-base-content font-semibold">Tùy chỉnh đoạn chat</h2>
-
                 </div>
                 <button
                   type="button"
@@ -593,31 +461,6 @@ a38f2522b43d50687999ec
                         >
                           Thay đổi ảnh
                         </button>
-<<<<<<< HEAD
-=======
-
-                        <div className="pt-2 border-t border-white/10" />
-
-                        {myRole === "OWNER" ? (
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-error w-full justify-start rounded-lg"
-                            onClick={dissolveGroup}
-                          >
-                            Giải tán nhóm
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="btn btn-sm w-full justify-start rounded-lg border-0 bg-white/5 hover:bg-white/10"
-                            onClick={leaveGroup}
-                          >
-                            Thoát khỏi đoạn chat
-                          </button>
-                        )}
-
-                        {/* no helper text; actions are disabled by permissions */}
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
                       </div>
                     )}
                   </div>
@@ -759,7 +602,6 @@ a38f2522b43d50687999ec
                     )}
                   </div>
 
-<<<<<<< HEAD
                   <div className="overflow-hidden rounded-lg border border-error/25 bg-error/5">
                     <div className="px-3 py-2 border-b border-error/15">
                       <div className="text-xs font-semibold uppercase tracking-wide text-error/90">
@@ -787,8 +629,6 @@ a38f2522b43d50687999ec
                     </div>
                   </div>
 
-=======
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
                 </div>
               </div>
 
@@ -801,11 +641,7 @@ a38f2522b43d50687999ec
       {/* Rename modal */}
       {showRenameModal && selectedConversation?.type === "GROUP" && (
         <div
-<<<<<<< HEAD
           className="discord-modal-scrim fixed inset-0 z-[2100] flex items-center justify-center p-4"
-=======
-          className="discord-modal-scrim fixed inset-0 z-[420] flex items-center justify-center p-4"
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRenameModal(false);
           }}
@@ -886,11 +722,7 @@ a38f2522b43d50687999ec
       {/* Avatar modal */}
       {showAvatarModal && selectedConversation?.type === "GROUP" && (
         <div
-<<<<<<< HEAD
           className="discord-modal-scrim fixed inset-0 z-[2100] flex items-center justify-center p-4"
-=======
-          className="discord-modal-scrim fixed inset-0 z-[420] flex items-center justify-center p-4"
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAvatarModal(false);
           }}
@@ -1023,11 +855,7 @@ a38f2522b43d50687999ec
       {/* Fixed member menu (not clipped by overflow) */}
       {memberMenu && (
         <div
-<<<<<<< HEAD
           className="fixed z-[2120]"
-=======
-          className="fixed z-[430]"
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           style={{
             left: memberMenu.x,
             top: memberMenu.y,
@@ -1080,11 +908,7 @@ a38f2522b43d50687999ec
       {/* Role modal */}
       {showRoleModal && roleTargetUserId && (
         <div
-<<<<<<< HEAD
           className="discord-modal-scrim fixed inset-0 z-[2140] flex items-center justify-center p-4"
-=======
-          className="discord-modal-scrim fixed inset-0 z-[440] flex items-center justify-center p-4"
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRoleModal(false);
           }}
@@ -1194,11 +1018,7 @@ a38f2522b43d50687999ec
       {/* Remove confirm modal */}
       {showRemoveConfirm && removeTargetUserId && (
         <div
-<<<<<<< HEAD
           className="discord-modal-scrim fixed inset-0 z-[2140] flex items-center justify-center p-4"
-=======
-          className="discord-modal-scrim fixed inset-0 z-[440] flex items-center justify-center p-4"
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowRemoveConfirm(false);
           }}
@@ -1253,7 +1073,6 @@ a38f2522b43d50687999ec
         </div>
       )}
 
-<<<<<<< HEAD
       {/* Dissolve group confirm */}
       {showDissolveConfirm && selectedConversation?.type === "GROUP" && (
         <div
@@ -1366,12 +1185,6 @@ a38f2522b43d50687999ec
       {showAddMemberModal && selectedConversation?.type === "GROUP" && (
         <div
           className="discord-modal-scrim fixed inset-0 z-[2160] flex items-center justify-center p-4"
-=======
-      {/* Add member modal */}
-      {showAddMemberModal && selectedConversation?.type === "GROUP" && (
-        <div
-          className="discord-modal-scrim fixed inset-0 z-[450] flex items-center justify-center p-4"
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowAddMemberModal(false);
           }}
@@ -1526,15 +1339,11 @@ a38f2522b43d50687999ec
           </div>
         </div>
       )}
-<<<<<<< HEAD
           </div>,
           document.body,
         )}
 
     </>
-=======
-    </div>
->>>>>>> 8fda87f2cc12057452a38f2522b43d50687999ec
   );
 };
 export default ChatHeader;
