@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { uploadFileViaPresign } from "../lib/uploadMedia.js";
-import { Camera, Mail, Shield, User } from "lucide-react";
+import { ArrowLeft, Camera, Mail, Shield, User } from "lucide-react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 export const ProfilePage = () => {
+  const navigate = useNavigate();
   const { authUser, isUpdatingProfile, updateProfile } = useAuthStore();
   const [selectedImg, setSelectedImg] = useState(null);
 
@@ -31,6 +33,15 @@ export const ProfilePage = () => {
       <div className="mx-auto max-w-4xl">
         <div className="discord-card overflow-hidden">
           <div className="discord-topbar px-6 py-5">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="discord-icon-button mb-3 flex size-10 items-center justify-center rounded-full bg-white/5 md:hidden"
+              aria-label="Back to messages"
+              title="Back"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
             <div className="discord-section-title mb-1">User Settings</div>
             <h1 className="text-2xl font-semibold">My Account</h1>
             <p className="mt-1 text-sm text-base-content/70">Manage your Discord-style profile card.</p>

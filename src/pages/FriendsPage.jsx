@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { UserPlus, Users } from "lucide-react";
+import { ArrowLeft, UserPlus, Users } from "lucide-react";
 import toast from "react-hot-toast";
 
 function dmConversationId(a, b) {
@@ -71,6 +71,15 @@ export const FriendsPage = () => {
         <div className="discord-card overflow-hidden">
           <div className="discord-topbar flex items-center justify-between gap-3 px-5 py-4">
             <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => navigate("/")}
+                className="discord-icon-button mb-3 flex size-10 items-center justify-center rounded-full bg-white/5 md:hidden"
+                aria-label="Back to messages"
+                title="Back"
+              >
+                <ArrowLeft className="size-5" />
+              </button>
               <div className="discord-section-title mb-1">Social</div>
               <h1 className="flex items-center gap-2 text-xl font-semibold">
                 <Users className="w-5 h-5 text-primary" />

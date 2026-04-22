@@ -1,10 +1,11 @@
 import React from "react";
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
-import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare, User } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
 import AuthImagePattern from "../components/AuthImagePattern";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import logoImg from "../assets/logo.png";
 
 export const SignUpPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -66,7 +67,7 @@ export const SignUpPage = () => {
           <div className="text-center mb-8">
             <div className="flex flex-col items-center gap-2 group">
               <div className="flex size-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25">
-                <MessageSquare className="size-6 text-primary" />
+                <img src={logoImg} alt="RushCord logo" className="size-8 rounded-lg object-cover" />
               </div>
               <h1 className="text-2xl font-bold mt-2">Create Account</h1>
               <p className="text-base-content/60">

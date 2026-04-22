@@ -1,4 +1,5 @@
-import { Hash, MessageSquare, Users } from "lucide-react";
+import { Hash, Users } from "lucide-react";
+import logoImg from "../assets/logo.png";
 
 const NoChatSelected = () => {
   return (
@@ -6,7 +7,7 @@ const NoChatSelected = () => {
       <div className="discord-card max-w-2xl px-10 py-12 text-center">
         <div className="mb-6 flex justify-center gap-4">
           <div className="flex size-16 items-center justify-center rounded-[18px] bg-primary/15 text-primary shadow-lg">
-            <MessageSquare className="size-8" />
+            <img src={logoImg} alt="RushCord logo" className="size-10 rounded-xl object-cover" />
           </div>
           <div className="flex size-16 items-center justify-center rounded-[18px] bg-white/5 text-base-content/70">
             <Hash className="size-7" />

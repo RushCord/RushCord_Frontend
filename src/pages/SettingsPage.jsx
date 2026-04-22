@@ -1,6 +1,7 @@
 import { THEMES } from "../constants";
 import { useThemeStore } from "../store/useThemeStore";
-import { Hash, Palette, Pin, Search, Send, Smile, Users } from "lucide-react";
+import { ArrowLeft, Hash, Palette, Pin, Search, Send, Smile, Users } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const PREVIEW_MESSAGES = [
   { id: 1, content: "Hey! How's it going?", isSent: false },
@@ -8,6 +9,7 @@ const PREVIEW_MESSAGES = [
 ];
 
 export const SettingsPage = () => {
+  const navigate = useNavigate();
   const { theme, setTheme } = useThemeStore();
 
   return (
@@ -15,6 +17,15 @@ export const SettingsPage = () => {
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="discord-card overflow-hidden">
           <div className="discord-topbar flex items-center gap-3 px-5 py-4">
+            <button
+              type="button"
+              onClick={() => navigate("/")}
+              className="discord-icon-button flex size-10 items-center justify-center rounded-full bg-white/5 md:hidden"
+              aria-label="Back to messages"
+              title="Back"
+            >
+              <ArrowLeft className="size-5" />
+            </button>
             <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/15 text-primary">
               <Palette className="size-5" />
             </div>

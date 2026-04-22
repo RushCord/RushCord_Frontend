@@ -250,6 +250,15 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
     <div className="discord-topbar mobile-chat-header px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setSelectedConversation(null)}
+            aria-label="Back to messages"
+            title="Back"
+            className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5 md:hidden"
+          >
+            <ArrowLeft className="size-4" />
+          </button>
           <div className="flex size-9 items-center justify-center rounded-full bg-white/5 text-base-content/70">
             {selectedConversation?.type === "GROUP" ? (
               <Hash className="size-4" />
@@ -340,10 +349,9 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
             type="button"
             onClick={() => setSelectedConversation(null)}
             aria-label="Close"
-            className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
+            className="discord-icon-button hidden size-9 items-center justify-center rounded-full bg-white/5 md:flex"
           >
-            <ArrowLeft className="size-4 md:hidden" />
-            <X className="hidden size-4 md:block" />
+            <X className="size-4" />
           </button>
         </div>
       </div>

@@ -1,14 +1,13 @@
 import React from "react";
 import { useAuthStore } from "../store/useAuthStore";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import logoImg from "../assets/logo.png";
 import {
   CirclePlus,
   Home,
   LogOut,
-  MessageSquare,
   Settings,
   User,
-  UserPlus,
   Users,
 } from "lucide-react";
 
@@ -30,7 +29,6 @@ export const Navbar = () => {
   const railItems = [
     { to: "/", label: "Home", icon: Home },
     { to: "/friends", label: "Friends", icon: Users },
-    { to: "/friends?add=1", label: "Add Friend", icon: UserPlus },
     { to: "/settings", label: "Settings", icon: Settings },
     { to: "/profile", label: "Profile", icon: User },
   ];
@@ -43,7 +41,7 @@ export const Navbar = () => {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
           <Link to="/" className="flex items-center gap-3 transition-opacity hover:opacity-90">
             <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-content shadow-lg">
-              <MessageSquare className="size-5" />
+              <img src={logoImg} alt="RushCord logo" className="size-7 rounded-lg object-cover" />
             </div>
             <div>
               <div className="text-sm font-semibold tracking-wide">RushCord</div>
@@ -66,7 +64,7 @@ export const Navbar = () => {
         className="relative mb-4 flex size-12 items-center justify-center rounded-[16px] bg-primary text-primary-content shadow-lg transition-[border-radius,transform] duration-150 hover:scale-105 hover:rounded-[18px]"
         title="RushCord"
       >
-        <MessageSquare className="size-5" />
+        <img src={logoImg} alt="RushCord logo" className="size-8 rounded-lg object-cover" />
       </Link>
 
       <div className="h-px w-10 bg-white/10" />

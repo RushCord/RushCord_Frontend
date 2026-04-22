@@ -1,9 +1,10 @@
-import { Eye, EyeOff, Loader2, Lock, Mail, MessageSquare } from "lucide-react";
+import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import React from "react";
 import { Link } from "react-router-dom";
 import AuthImagePattern from "../components/AuthImagePattern";
 import { useState } from "react";
 import { useAuthStore } from "../store/useAuthStore";
+import logoImg from "../assets/logo.png";
 
 export const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -27,7 +28,7 @@ export const LoginPage = () => {
               <div
                 className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25"
               >
-                <MessageSquare className="w-6 h-6 text-primary" />
+                <img src={logoImg} alt="RushCord logo" className="h-8 w-8 rounded-lg object-cover" />
               </div>
               <h1 className="text-2xl font-bold mt-2">Welcome Back</h1>
               <p className="text-base-content/60">Sign in to your account</p>

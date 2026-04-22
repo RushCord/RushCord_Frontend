@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { Loader2, Mail, MessageSquare } from "lucide-react";
+import { Loader2, Mail } from "lucide-react";
 import AuthImagePattern from "../components/AuthImagePattern";
 import { useAuthStore } from "../store/useAuthStore";
+import logoImg from "../assets/logo.png";
 
 export const ConfirmEmailPage = () => {
   const location = useLocation();
@@ -50,7 +51,7 @@ export const ConfirmEmailPage = () => {
           <div className="text-center mb-8">
             <div className="flex flex-col items-center gap-2 group">
               <div className="flex size-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25">
-                <MessageSquare className="size-6 text-primary" />
+                <img src={logoImg} alt="RushCord logo" className="size-8 rounded-lg object-cover" />
               </div>
               <h1 className="text-2xl font-bold mt-2">Verify your email</h1>
               <p className="text-base-content/60">
