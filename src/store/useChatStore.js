@@ -23,6 +23,8 @@ export const useChatStore = create((set, get) => ({
   isConversationsLoading: false,
   isFriendsLoading: false,
   isFriendRequestsLoading: false,
+  aiMode: false,
+  isAiBusy: false,
 
   // =========================
   // FRIENDS
@@ -252,6 +254,137 @@ export const useChatStore = create((set, get) => ({
         error.message ||
         "Send failed";
       toast.error(msg);
+    }
+  },
+
+  setAiMode: (value) => {
+    set({ aiMode: Boolean(value) });
+  },
+
+  aiChatInConversation: async (promptText) => {
+    const prompt = String(promptText || "").trim();
+    if (!prompt) return;
+
+    const { messages, users, selectedConversation } = get();
+    const { authUser } = useAuthStore.getState();
+
+    // Take last 20 non-system messages as context (best-effort).
+    const context = (Array.isArray(messages) ? messages : [])
+      .filter((m) => m && !m.isSystem && !m.isDeletedForMe && !m.isRecalled)
+      .slice(-20)
+      .map((m) => {
+        const senderId = String(m.senderId || "");
+        const senderName =
+          senderId === String(authUser?._id || "")
+            ? "Bạn"
+            : users.find((u) => String(u._id) === senderId)?.fullName || senderId || "Người dùng";
+        const content = String(m.text || "").trim();
+        return {
+          role: "user",
+          content: content ? `${senderName}: ${content}` : `${senderName}: (đính kèm)`,
+        };
+      });
+
+    const now = Date.now();
+    const userLocalMessage = {
+      _id: `ai-user-${now}`,
+      senderId: authUser?._id || "me",
+      text: `@RushCord ${prompt}`,
+      createdAt: new Date(now).toISOString(),
+      conversationId: selectedConversation?.conversationId,
+    };
+    set({ messages: [...messages, userLocalMessage], isAiBusy: true });
+
+    try {
+      const payload = { messages: [...context, { role: "user", content: prompt }] };
+      const res = await axiosInstance.post("/ai/chat", payload);
+      const reply = String(res?.data?.reply || "").trim();
+
+      const botLocalMessage = {
+        _id: `ai-bot-${now + 1}`,
+        senderId: "RushCordAI",
+        text: reply || "(AI không trả lời)",
+        createdAt: new Date(now + 1).toISOString(),
+        conversationId: selectedConversation?.conversationId,
+      };
+      set((s) => ({ messages: [...(s.messages || []), botLocalMessage] }));
+    } catch (error) {
+      // Useful debugging for browser "Network Error" cases (CORS/blocked/timeout).
+      // eslint-disable-next-line no-console
+      console.error("[RushCordAI] /v1/chat failed", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.response?.status,
+        data: error?.response?.data,
+      });
+      const msg =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Gọi RushCordAI thất bại";
+      toast.error(msg);
+    } finally {
+      set({ isAiBusy: false });
+    }
+  },
+
+  aiSummarizeLast20: async () => {
+    const { messages, users, selectedConversation } = get();
+    const { authUser } = useAuthStore.getState();
+
+    const last20 = (Array.isArray(messages) ? messages : [])
+      .filter((m) => m && !m.isSystem && !m.isDeletedForMe && !m.isRecalled)
+      .slice(-20);
+
+    if (last20.length === 0) {
+      toast.error("Chưa có tin nhắn để tóm tắt");
+      return;
+    }
+
+    const payload = {
+      messages: last20.map((m) => {
+        const senderId = String(m.senderId || "");
+        const senderName =
+          senderId === String(authUser?._id || "")
+            ? "Bạn"
+            : users.find((u) => String(u._id) === senderId)?.fullName || senderId || "Người dùng";
+        const content = String(m.text || "").trim();
+        return {
+          role: "user",
+          content: content ? `${senderName}: ${content}` : `${senderName}: (đính kèm)`,
+        };
+      }),
+    };
+
+    const now = Date.now();
+    set({ isAiBusy: true });
+    try {
+      const res = await axiosInstance.post("/ai/summarize", payload);
+      const summary = String(res?.data?.summary || "").trim();
+      const botLocalMessage = {
+        _id: `ai-summary-${now}`,
+        senderId: "RushCordAI",
+        text: summary ? `Tóm tắt 20 tin nhắn mới nhất:\n${summary}` : "(Không có tóm tắt)",
+        createdAt: new Date(now).toISOString(),
+        conversationId: selectedConversation?.conversationId,
+      };
+      set((s) => ({ messages: [...(s.messages || []), botLocalMessage] }));
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("[RushCordAI] /v1/summarize failed", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.response?.status,
+        data: error?.response?.data,
+      });
+      const msg =
+        error.response?.data?.detail ||
+        error.response?.data?.message ||
+        error.message ||
+        "Tóm tắt thất bại";
+      toast.error(msg);
+    } finally {
+      set({ isAiBusy: false });
     }
   },
   // =========================
