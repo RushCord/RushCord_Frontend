@@ -66,23 +66,33 @@ export const FriendsPage = () => {
   }, [addableUsers]);
 
   return (
-    <div className="h-screen w-full pt-20 px-4">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <div className="min-h-screen w-full bg-[var(--discord-app)] px-6 py-8">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <div className="discord-card overflow-hidden">
+          <div className="discord-topbar flex items-center justify-between gap-3 px-5 py-4">
+            <div className="min-w-0">
+              <div className="discord-section-title mb-1">Social</div>
+              <h1 className="flex items-center gap-2 text-xl font-semibold">
+                <Users className="w-5 h-5 text-primary" />
+                Friends
+              </h1>
+              <p className="text-sm text-base-content/70">
+                Manage friends, requests, and quick-start direct messages.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              Friends
-            </h1>
-            <p className="text-sm text-base-content/70">
-              Manage friends and friend requests
-            </p>
+            <div className="discord-section-title mb-1">Quick Add</div>
+            <h2 className="text-lg font-semibold">Add a friend by email</h2>
           </div>
         </div>
 
         <div
           id="add-friend-section"
-          className="rounded-xl border border-base-300 bg-base-100 p-4"
+          className="discord-card p-5"
         >
           <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="font-medium flex items-center gap-2">
@@ -94,7 +104,7 @@ export const FriendsPage = () => {
           <div className="flex flex-col sm:flex-row gap-2">
             <div className="flex-1">
               <input
-                className="input input-bordered w-full"
+                className="input discord-input-reset h-11 w-full rounded-xl border border-white/10 bg-black/10 px-4"
                 placeholder="Enter friend's email (e.g. name@gmail.com)"
                 value={addFriendEmail}
                 onChange={(e) => setAddFriendEmail(e.target.value)}
@@ -110,7 +120,7 @@ export const FriendsPage = () => {
             </div>
             <button
               type="button"
-              className="btn btn-primary"
+              className="btn btn-primary rounded-lg border-0"
               disabled={!String(addFriendEmail || "").trim()}
               onClick={async () => {
                 const email = String(addFriendEmail || "").trim().toLowerCase();
@@ -138,8 +148,8 @@ export const FriendsPage = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-base-300 bg-base-100 p-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="discord-card p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-medium">Friends ({friends.length})</h2>
             </div>
@@ -153,13 +163,13 @@ export const FriendsPage = () => {
                 return (
                   <div
                     key={f.otherUserId}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-200/50 p-2"
+                    className="discord-list-item justify-between rounded-lg border border-white/10 bg-black/10"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img
                         src={avatar}
                         alt={name}
-                        className="size-9 rounded-full object-cover border border-base-300"
+                        className="size-9 rounded-full border border-white/10 object-cover"
                       />
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">{name}</div>
@@ -170,7 +180,7 @@ export const FriendsPage = () => {
                     </div>
                     <button
                       type="button"
-                      className="btn btn-xs"
+                      className="btn btn-xs rounded-md border-0 bg-primary/85 text-primary-content hover:bg-primary"
                       onClick={() => {
                         const cid = dmConversationId(authUser?._id, f.otherUserId);
                         setSelectedConversation({
@@ -192,8 +202,9 @@ export const FriendsPage = () => {
             </div>
           </div>
 
-          <div className="rounded-xl border border-base-300 bg-base-100 p-4 space-y-4">
+          <div className="space-y-4">
             <div>
+              <div className="discord-card p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-medium">
                   Incoming requests ({incomingFriendRequests.length})
@@ -207,7 +218,7 @@ export const FriendsPage = () => {
                   return (
                     <div
                       key={`in_${r.otherUserId}`}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-200/50 p-2"
+                      className="discord-list-item justify-between rounded-lg border border-white/10 bg-black/10"
                     >
                       <div className="min-w-0">
                         <div className="text-sm truncate">{name}</div>
@@ -218,14 +229,14 @@ export const FriendsPage = () => {
                       <div className="flex gap-2 shrink-0">
                         <button
                           type="button"
-                          className="btn btn-xs btn-primary"
+                          className="btn btn-xs btn-primary rounded-md border-0"
                           onClick={() => acceptFriendRequest(r.otherUserId)}
                         >
                           Accept
                         </button>
                         <button
                           type="button"
-                          className="btn btn-xs"
+                          className="btn btn-xs rounded-md border-0 bg-white/5 hover:bg-white/10"
                           onClick={() => deleteFriendRequest(r.otherUserId)}
                         >
                           Decline
@@ -239,8 +250,10 @@ export const FriendsPage = () => {
                 )}
               </div>
             </div>
+            </div>
 
             <div>
+              <div className="discord-card p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-medium">
                   Outgoing requests ({outgoingFriendRequests.length})
@@ -254,7 +267,7 @@ export const FriendsPage = () => {
                   return (
                     <div
                       key={`out_${r.otherUserId}`}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-base-300 bg-base-200/50 p-2"
+                      className="discord-list-item justify-between rounded-lg border border-white/10 bg-black/10"
                     >
                       <div className="min-w-0">
                         <div className="text-sm truncate">{name}</div>
@@ -264,7 +277,7 @@ export const FriendsPage = () => {
                       </div>
                       <button
                         type="button"
-                        className="btn btn-xs"
+                        className="btn btn-xs rounded-md border-0 bg-white/5 hover:bg-white/10"
                         onClick={() => deleteFriendRequest(r.otherUserId)}
                       >
                         Cancel
@@ -276,6 +289,7 @@ export const FriendsPage = () => {
                   <div className="text-sm text-base-content/60">No outgoing requests.</div>
                 )}
               </div>
+            </div>
             </div>
           </div>
         </div>

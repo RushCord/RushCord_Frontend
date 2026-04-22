@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 import SidebarSkeleton from "./skeletons/SidebarSkeleton";
-import { Users, Plus } from "lucide-react";
+import { Bell, Hash, Plus, Settings, User, Users } from "lucide-react";
 import { axiosInstance } from "../lib/axios";
 import { formatMessageTime } from "../lib/utils";
 import toast from "react-hot-toast";
+import { Link } from "react-router-dom";
 
 const Sidebar = () => {
   const {
@@ -108,42 +109,47 @@ const Sidebar = () => {
   if (isUsersLoading) return <SidebarSkeleton />;
 
   return (
-    <aside className="h-full w-full flex flex-col transition-all duration-200">
-      <div className="border-b border-base-300 w-full p-5">
-        <div className="flex items-center gap-2 justify-between">
-          <div className="flex items-center gap-2">
-            <Users className="size-6" />
-            <span className="font-medium hidden lg:block">Conversations</span>
+    <aside className="flex h-full w-full flex-col overflow-hidden">
+      <div className="discord-topbar w-full px-4 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 conversation-expanded-only">
+            <div className="discord-section-title mb-1">Workspace</div>
+            <div className="flex items-center gap-2">
+              <div className="flex size-8 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                <Users className="size-4" />
+              </div>
+              <span className="truncate text-sm font-semibold">Conversations</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button
               type="button"
-              className="btn btn-xs btn-circle"
+              className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
               title="Create group"
               onClick={() => setShowCreate(true)}
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="size-4" />
             </button>
           </div>
         </div>
 
-        <div className="mt-3 relative hidden lg:block">
+        <div className="conversation-expanded-only relative mt-4">
           <input
-            className="input input-bordered input-sm w-full"
-            placeholder="Search friends by name or email..."
+            className="input discord-input-reset h-11 w-full rounded-xl border border-white/10 bg-black/10 pl-4 text-sm"
+            placeholder="Find friends and direct messages"
             value={friendSearch}
             onChange={(e) => setFriendSearch(e.target.value)}
           />
 
           {String(friendSearch || "").trim() && (
-            <div className="absolute mt-2 w-full z-40">
-              <div className="rounded-xl border border-base-300 bg-base-100 shadow-xl overflow-hidden">
+            <div className="absolute z-40 mt-2 w-full">
+              <div className="discord-modal-card overflow-hidden rounded-xl">
                 {friendMatches.length === 0 ? (
-                  <div className="px-3 py-2 text-sm text-base-content/60">
+                  <div className="px-3 py-3 text-sm text-base-content/60">
                     No matching friends
                   </div>
                 ) : (
-                  <div className="max-h-64 overflow-y-auto">
+                  <div className="discord-scroll max-h-64 overflow-y-auto p-2">
                     {friendMatches.map((m) => {
                       const isOnline = onlineUsers.includes(String(m.otherUserId));
                       return (
@@ -151,6 +157,7 @@ const Sidebar = () => {
                           key={m.otherUserId}
                           type="button"
                           className="w-full px-3 py-2 flex items-center gap-3 hover:bg-base-200 text-left"
+                          title={m.fullName}
                           onClick={() => {
                             setSelectedConversation({
                               conversationId: `DM#${[String(useAuthStore.getState().authUser?._id || ""), String(m.otherUserId || "")].sort().join("#")}`,
@@ -160,14 +167,14 @@ const Sidebar = () => {
                             setFriendSearch("");
                           }}
                         >
-                          <div className="relative">
+                          <div className="relative shrink-0">
                             <img
                               src={m.profilePic}
                               alt={m.fullName}
-                              className="size-9 rounded-full object-cover border border-base-300"
+                              className="size-9 rounded-full object-cover border border-white/10"
                             />
                             {isOnline && (
-                              <span className="absolute bottom-0 right-0 size-2.5 bg-green-500 rounded-full ring-2 ring-base-100" />
+                              <span className="discord-status-dot" />
                             )}
                           </div>
                           <div className="min-w-0">
@@ -189,12 +196,12 @@ const Sidebar = () => {
         </div>
       </div>
 
-      <div className="overflow-y-auto w-full py-3">
-        <div className="hidden lg:block px-3 pb-3">
-          <div className="text-xs text-base-content/60 mb-2">Recent</div>
+      <div className="discord-scroll flex-1 overflow-y-auto px-3 py-4">
+        <div className="pb-4">
+          <div className="discord-section-title mb-2 px-2">Recent channels</div>
 
           {recentConversationsList.length === 0 ? (
-            <div className="text-sm text-base-content/60 py-2">
+            <div className="px-2 py-2 text-sm text-base-content/60">
               No recent conversations
             </div>
           ) : (
@@ -245,32 +252,35 @@ const Sidebar = () => {
                     key={`recent_${c.conversationId}`}
                     type="button"
                     onClick={() => setSelectedConversation(c)}
+                    title={title}
                     className={[
-                      "w-full p-2 flex items-center gap-3 rounded-lg",
-                      "hover:bg-base-200 transition-colors",
-                      isSelected ? "bg-base-200 ring-1 ring-base-300" : "",
+                      "discord-list-item w-full text-left",
+                      isSelected ? "is-active" : "",
                     ].join(" ")}
                   >
-                    <div className="relative shrink-0">
+                    <div className="conversation-kind flex size-8 shrink-0 items-center justify-center rounded-full bg-black/10 text-base-content/70">
+                      <Hash className="size-4" />
+                    </div>
+                    <div className="conversation-avatar relative shrink-0">
                       <img
                         src={avatar}
                         alt={title}
-                        className="size-9 object-cover rounded-full border border-base-300"
+                        className="size-9 rounded-full border border-white/10 object-cover"
                       />
                       {!isGroup && other && onlineUsers.includes(other._id) && (
-                        <span className="absolute bottom-0 right-0 size-2.5 bg-green-500 rounded-full ring-2 ring-base-100" />
+                        <span className="discord-status-dot" />
                       )}
                     </div>
-                    <div className="min-w-0 flex-1 text-left">
+                    <div className="conversation-meta min-w-0 flex-1 text-left">
                       <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium truncate">{title}</div>
+                        <div className="conversation-primary text-sm font-medium truncate">{title}</div>
                         {timeLabel ? (
-                          <div className="ml-auto text-[11px] text-base-content/50 tabular-nums">
+                          <div className="conversation-secondary ml-auto text-[11px] text-base-content/50 tabular-nums">
                             {timeLabel}
                           </div>
                         ) : null}
                       </div>
-                      <div className="text-xs text-base-content/60 truncate">
+                      <div className="conversation-secondary text-xs text-base-content/60 truncate">
                         {previewText || (isGroup ? "Group" : "Direct message")}
                       </div>
                     </div>
@@ -282,33 +292,80 @@ const Sidebar = () => {
         </div>
       </div>
 
+      <div className="discord-user-panel flex items-center gap-3 px-3 py-3">
+        <div className="relative shrink-0">
+          <img
+            src={authUser?.profilePic || "/avatar.png"}
+            alt={authUser?.fullName || "Profile"}
+            className="size-10 rounded-full border border-white/10 object-cover"
+          />
+          <span className="discord-status-dot" />
+        </div>
+
+        <div className="conversation-expanded-only min-w-0 flex-1">
+          <div className="conversation-primary truncate text-sm font-semibold">
+            {authUser?.fullName || "RushCord User"}
+          </div>
+          <div className="conversation-secondary truncate text-xs text-base-content/60">
+            {authUser?.email || "Online"}
+          </div>
+        </div>
+
+        <div className="conversation-controls flex items-center gap-1">
+          <Link
+            to="/profile"
+            title="Profile"
+            className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
+          >
+            <User className="size-4" />
+          </Link>
+          <Link
+            to="/settings"
+            title="Settings"
+            className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
+          >
+            <Settings className="size-4" />
+          </Link>
+          <button
+            type="button"
+            title="Notifications"
+            className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
+          >
+            <Bell className="size-4" />
+          </button>
+        </div>
+      </div>
+
       {showCreate && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4"
+          className="discord-modal-scrim fixed inset-0 z-[70] flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setShowCreate(false);
           }}
           role="presentation"
         >
           <div
-            className="bg-base-100 rounded-xl w-full max-w-lg border border-base-300 shadow-xl p-4"
+            className="discord-modal-card w-full max-w-lg p-5"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
           >
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold">Create group</h2>
+              <div>
+                <div className="discord-section-title mb-1">Create room</div>
+                <h2 className="font-semibold">Create group</h2>
+              </div>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
                 onClick={() => setShowCreate(false)}
               >
-                Close
+                <Plus className="size-4 rotate-45" />
               </button>
             </div>
 
             <input
-              className="input input-bordered w-full mb-3"
+              className="input discord-input-reset mb-3 w-full rounded-xl border border-white/10 bg-black/10 px-4"
               placeholder="Group title"
               value={groupTitle}
               onChange={(e) => setGroupTitle(e.target.value)}
@@ -318,7 +375,7 @@ const Sidebar = () => {
               {/* Add member by email */}
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
-                  className="input input-bordered flex-1"
+                  className="input discord-input-reset flex-1 rounded-xl border border-white/10 bg-black/10 px-4"
                   placeholder="Add member by email"
                   value={memberEmail}
                   onChange={(e) => setMemberEmail(e.target.value)}
@@ -327,7 +384,7 @@ const Sidebar = () => {
                 />
                 <button
                   type="button"
-                  className="btn btn-sm"
+                  className="btn btn-sm rounded-lg border-0 bg-primary text-primary-content"
                   disabled={!String(memberEmail || "").trim()}
                   onClick={() => {
                     const email = String(memberEmail || "").trim().toLowerCase();
@@ -361,20 +418,20 @@ const Sidebar = () => {
                   {selectedMembers.map((m) => (
                     <div
                       key={`sel_${m._id}`}
-                      className="flex items-center gap-2 rounded-full border border-base-300 bg-base-200 px-2 py-1"
+                      className="flex items-center gap-2 rounded-full border border-white/10 bg-black/10 px-2 py-1"
                       title={m.email || m.fullName}
                     >
                       <img
                         src={m.profilePic}
                         alt={m.fullName}
-                        className="size-6 rounded-full object-cover border border-base-300"
+                        className="size-6 rounded-full border border-white/10 object-cover"
                       />
                       <div className="max-w-44 truncate text-sm">
                         {m.fullName}
                       </div>
                       <button
                         type="button"
-                        className="btn btn-ghost btn-xs"
+                        className="discord-icon-button flex size-5 items-center justify-center rounded-full"
                         onClick={() =>
                           setMemberIds((prev) =>
                             (Array.isArray(prev) ? prev : []).filter(
@@ -385,7 +442,7 @@ const Sidebar = () => {
                         aria-label="Remove"
                         title="Remove"
                       >
-                        ✕
+                        <Plus className="size-3 rotate-45" />
                       </button>
                     </div>
                   ))}
@@ -411,7 +468,7 @@ const Sidebar = () => {
                       return (
                         <label
                           key={`recent_${uid}`}
-                          className="flex items-center gap-3 cursor-pointer rounded-lg border border-base-300 bg-base-100 px-3 py-2 hover:bg-base-200/60"
+                          className="discord-list-item cursor-pointer rounded-lg border border-white/10 bg-black/10"
                         >
                           <input
                             type="checkbox"
@@ -432,7 +489,7 @@ const Sidebar = () => {
                           <img
                             src={u?.profilePic || "/avatar.png"}
                             alt={name}
-                            className="size-8 rounded-full object-cover border border-base-300"
+                            className="size-8 rounded-full border border-white/10 object-cover"
                           />
                           <div className="min-w-0">
                             <div className="text-sm font-medium truncate text-base-content">
@@ -453,7 +510,7 @@ const Sidebar = () => {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn rounded-lg border-0 bg-primary text-primary-content"
                 onClick={async () => {
                   try {
                     await axiosInstance.post("/conversations", {

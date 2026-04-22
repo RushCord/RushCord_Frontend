@@ -101,8 +101,8 @@ function RemoteTile({
   }, [identity, onRegister, onUnregister]);
 
   return (
-    <div className="bg-black rounded-lg overflow-hidden border border-white/10">
-      <div className="px-3 py-2 text-xs text-white/80 bg-gray-800/70 truncate">
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[var(--discord-panel)] shadow-lg">
+      <div className="truncate border-b border-white/10 bg-black/10 px-3 py-2 text-xs text-base-content/70">
         {typeof getDisplayName === "function" ? getDisplayName(identity) : identity}
       </div>
       <video
@@ -110,7 +110,7 @@ function RemoteTile({
         autoPlay
         playsInline
         // Keep audio in separate <audio> element to avoid autoplay blocks on video-with-audio.
-        className="w-full h-44 md:h-56 object-cover bg-black"
+        className="h-44 w-full bg-black object-cover md:h-56"
       />
       <audio ref={audioRef} autoPlay />
     </div>
@@ -582,14 +582,14 @@ export default function GroupVideoCall({
   const remotes = remoteIdentities;
 
   return (
-    <div className="w-full bg-gray-900 rounded-xl p-4">
-      <h2 className="text-white text-xl lg:text-2xl font-bold mb-4 flex items-center gap-3">
+    <div className="w-full rounded-2xl border border-white/10 bg-[var(--discord-panel)] p-4">
+      <h2 className="mb-4 flex items-center gap-3 text-xl font-bold lg:text-2xl">
         <span>Group Video Call</span>
         <span className="ml-auto flex items-center gap-2">
           <span
-            className={`text-base px-3 py-1.5 rounded-lg ${
+            className={`rounded-lg px-3 py-1.5 text-base ${
               callStatus === "idle"
-                ? "bg-gray-700"
+                ? "bg-white/10"
                 : callStatus === "connecting"
                   ? "bg-yellow-600"
                   : callStatus === "connected"
@@ -609,7 +609,7 @@ export default function GroupVideoCall({
           <button
             type="button"
             onClick={() => setShowSettings((v) => !v)}
-            className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-base border border-gray-700"
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-base hover:bg-white/10"
           >
             Settings
           </button>
@@ -617,7 +617,7 @@ export default function GroupVideoCall({
           <button
             type="button"
             onClick={() => endCall({ sendHangup: true })}
-            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-base"
+            className="rounded-lg bg-red-600 px-4 py-2 text-base text-white hover:bg-red-700"
           >
             End
           </button>
@@ -625,20 +625,20 @@ export default function GroupVideoCall({
       </h2>
 
       {error && (
-        <div className="mb-4 bg-red-900/50 text-red-200 p-3 rounded-lg text-base">
+        <div className="mb-4 rounded-lg bg-red-900/50 p-3 text-base text-red-200">
           {error}
         </div>
       )}
 
       {showSettings && (
-        <div className="mb-4 rounded-xl border border-gray-700 bg-gray-950/40 p-3 space-y-3">
+        <div className="mb-4 space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs text-gray-300 mb-1">Camera</label>
+              <label className="mb-1 block text-xs text-base-content/60">Camera</label>
               <select
                 value={selectedCameraId}
                 onChange={(e) => switchCamera(e.target.value)}
-                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700"
+                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
               >
                 {cameras.length === 0 ? (
                   <option value="">No camera</option>
@@ -653,11 +653,11 @@ export default function GroupVideoCall({
             </div>
 
             <div>
-              <label className="block text-xs text-gray-300 mb-1">Mic</label>
+              <label className="mb-1 block text-xs text-base-content/60">Mic</label>
               <select
                 value={selectedMicId}
                 onChange={(e) => switchMicrophone(e.target.value)}
-                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700"
+                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
               >
                 {microphones.length === 0 ? (
                   <option value="">No microphone</option>
@@ -672,11 +672,11 @@ export default function GroupVideoCall({
             </div>
 
             <div>
-              <label className="block text-xs text-gray-300 mb-1">Speaker</label>
+              <label className="mb-1 block text-xs text-base-content/60">Speaker</label>
               <select
                 value={selectedSpeakerId}
                 onChange={(e) => setSelectedSpeakerId(e.target.value)}
-                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700"
+                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
               >
                 {speakers.length === 0 ? (
                   <option value="">Default</option>
@@ -692,7 +692,7 @@ export default function GroupVideoCall({
                 )}
               </select>
               {!speakerSupported && (
-                <div className="mt-1 text-xs text-gray-400">
+                <div className="mt-1 text-xs text-base-content/50">
                   Speaker select not supported in this browser.
                 </div>
               )}
@@ -706,7 +706,7 @@ export default function GroupVideoCall({
           <button
             type="button"
             onClick={connectToRoom}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+            className="rounded-lg bg-primary px-4 py-2 text-primary-content hover:bg-primary/90"
           >
             Join
           </button>
@@ -714,14 +714,14 @@ export default function GroupVideoCall({
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        <div className="bg-black rounded-lg overflow-hidden border border-white/10">
-          <div className="px-3 py-2 text-xs text-white/80 bg-gray-800/70">You</div>
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[var(--discord-panel)] shadow-lg">
+          <div className="border-b border-white/10 bg-black/10 px-3 py-2 text-xs text-base-content/70">You</div>
           <video
             ref={localVideo}
             autoPlay
             playsInline
             muted
-            className="w-full h-44 md:h-56 object-cover bg-black"
+            className="h-44 w-full bg-black object-cover md:h-56"
           />
         </div>
 

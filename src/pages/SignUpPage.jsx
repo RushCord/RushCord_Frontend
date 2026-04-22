@@ -60,14 +60,12 @@ export const SignUpPage = () => {
     }
   };
   return (
-    <div className="min-h-screeen grid lg:grid-cols-2">
-      {/* Left side */}
-      <div className="flex flex-col justify-center items-center p-6 sm:p-12">
-        <div className="w-full max-w-md space-y-8">
-          {/* Logo */}
+    <div className="min-h-screen bg-[var(--discord-app)] lg:grid lg:grid-cols-2">
+      <div className="flex items-center justify-center p-6 sm:p-12">
+        <div className="discord-card w-full max-w-md p-8">
           <div className="text-center mb-8">
             <div className="flex flex-col items-center gap-2 group">
-              <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+              <div className="flex size-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25">
                 <MessageSquare className="size-6 text-primary" />
               </div>
               <h1 className="text-2xl font-bold mt-2">Create Account</h1>
@@ -88,7 +86,7 @@ export const SignUpPage = () => {
                 </div>
                 <input
                   type="text"
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="John Doe"
                   value={formData.fullName}
                   onChange={(e) =>
@@ -108,7 +106,7 @@ export const SignUpPage = () => {
                 </div>
                 <input
                   type="email"
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="you@example.com"
                   value={formData.email}
                   onChange={(e) =>
@@ -128,7 +126,7 @@ export const SignUpPage = () => {
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
-                  className={`input input-bordered w-full pl-10`}
+                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
                   placeholder="••••••••"
                   value={formData.password}
                   onChange={(e) =>
@@ -154,7 +152,7 @@ export const SignUpPage = () => {
 
             <button
               type="submit"
-              className="btn btn-primary w-full"
+              className="btn btn-primary h-12 w-full rounded-lg border-0"
               disabled={isSigningUp}
             >
               {isSigningUp ? (
@@ -179,7 +177,6 @@ export const SignUpPage = () => {
         </div>
       </div>
 
-      {/* Right side */}
       <AuthImagePattern
         title="Join our community"
         subtitle="Connect with friends, share moments, and stay in touch with your loved ones."
