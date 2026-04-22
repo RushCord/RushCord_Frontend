@@ -3,21 +3,112 @@ import toast from "react-hot-toast";
 import { axiosInstance } from "../lib/axios";
 import { uploadFileViaPresign } from "../lib/uploadMedia.js";
 import { useAuthStore } from "./useAuthStore";
-import {
-  loadRecentConversations,
-  upsertRecentDmConversation,
-} from "../lib/recentConversationsCache.js";
+import { loadRecentConversations } from "../lib/recentConversationsCache.js";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
   users: [],
-  selectedUser: null,
+  conversations: [],
+  friends: [],
+  incomingFriendRequests: [],
+  outgoingFriendRequests: [],
+  selectedConversation: null, // { conversationId, type, title, otherUserId, ... }
   recentConversations: loadRecentConversations(),
   isTyping: false,
+  typingFromUserId: null,
   _typingTimer: null,
   isReacting: false,
   isUsersLoading: false,
   isMessagesLoading: false,
+  isConversationsLoading: false,
+  isFriendsLoading: false,
+  isFriendRequestsLoading: false,
+
+  // =========================
+  // FRIENDS
+  // =========================
+  getFriends: async () => {
+    set({ isFriendsLoading: true });
+    try {
+      const res = await axiosInstance.get("/friends");
+      set({ friends: res.data || [] });
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Error";
+      toast.error(msg);
+    } finally {
+      set({ isFriendsLoading: false });
+    }
+  },
+
+  getFriendRequests: async () => {
+    set({ isFriendRequestsLoading: true });
+    try {
+      const [incomingRes, outgoingRes] = await Promise.all([
+        axiosInstance.get("/friends/requests?type=incoming"),
+        axiosInstance.get("/friends/requests?type=outgoing"),
+      ]);
+      set({
+        incomingFriendRequests: incomingRes.data || [],
+        outgoingFriendRequests: outgoingRes.data || [],
+      });
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Error";
+      toast.error(msg);
+    } finally {
+      set({ isFriendRequestsLoading: false });
+    }
+  },
+
+  sendFriendRequest: async (otherUserId) => {
+    try {
+      await axiosInstance.post("/friends/requests", { otherUserId });
+      toast.success("Friend request sent");
+      await get().getFriendRequests();
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Send request failed";
+      toast.error(msg);
+      throw error;
+    }
+  },
+
+  acceptFriendRequest: async (otherUserId) => {
+    try {
+      await axiosInstance.post(`/friends/requests/${otherUserId}/accept`);
+      toast.success("Friend request accepted");
+      await Promise.all([get().getFriends(), get().getFriendRequests()]);
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Accept failed";
+      toast.error(msg);
+      throw error;
+    }
+  },
+
+  deleteFriendRequest: async (otherUserId) => {
+    try {
+      await axiosInstance.delete(`/friends/requests/${otherUserId}`);
+      toast.success("Request removed");
+      await get().getFriendRequests();
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Delete failed";
+      toast.error(msg);
+      throw error;
+    }
+  },
 
   // =========================
   // GET USERS
@@ -35,28 +126,57 @@ export const useChatStore = create((set, get) => ({
   },
 
   // =========================
-  // GET MESSAGES
+  // GET CONVERSATIONS (inbox)
   // =========================
-  getMessages: async (userId) => {
-    set({ isMessagesLoading: true });
+  getConversations: async () => {
+    set({ isConversationsLoading: true });
     try {
-      const res = await axiosInstance.get(`/messages/${userId}`);
-      set({ messages: res.data });
+      const res = await axiosInstance.get(`/conversations`);
+      set({ conversations: res.data || [] });
     } catch (error) {
       toast.error(error.response?.data?.message || "Error");
+    } finally {
+      set({ isConversationsLoading: false });
+    }
+  },
+
+  // =========================
+  // GET MESSAGES (conversation)
+  // =========================
+  getMessages: async (conversationId) => {
+    set({ isMessagesLoading: true });
+    try {
+      const { selectedConversation } = get();
+      const isDm = selectedConversation?.type === "DM" && selectedConversation?.otherUserId;
+
+      const res = isDm
+        ? await axiosInstance.get(
+            `/messages/${encodeURIComponent(String(selectedConversation.otherUserId))}`,
+          )
+        : await axiosInstance.get(
+            `/conversations/${encodeURIComponent(String(conversationId || ""))}/messages`,
+          );
+
+      set({ messages: res.data || [] });
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Error";
+      toast.error(msg);
     } finally {
       set({ isMessagesLoading: false });
     }
   },
 
   // =========================
-  // SEND MESSAGE
+  // SEND MESSAGE (conversation)
   // =========================
   sendMessage: async ({ text = "", file = null, files = null }) => {
-    const { selectedUser, messages } = get();
+    const { selectedConversation, messages } = get();
 
-    if (!selectedUser?._id) {
-      toast.error("No user selected");
+    if (!selectedConversation?.conversationId) {
+      toast.error("No conversation selected");
       return;
     }
 
@@ -102,26 +222,28 @@ export const useChatStore = create((set, get) => ({
         };
       }
 
-      const res = await axiosInstance.post(
-        `/messages/send/${selectedUser._id}`,
-        body,
-      );
+      const isDm =
+        selectedConversation?.type === "DM" && selectedConversation?.otherUserId;
+
+      const res = isDm
+        ? await axiosInstance.post(
+            `/messages/send/${encodeURIComponent(String(selectedConversation.otherUserId))}`,
+            body,
+          )
+        : await axiosInstance.post(
+            `/conversations/${encodeURIComponent(
+              String(selectedConversation.conversationId),
+            )}/messages`,
+            body,
+          );
 
       set({ messages: [...messages, res.data] });
 
-      // Update recent DM conversations cache (top 10)
+      // Refresh inbox ordering (best effort).
       try {
-        const myId = useAuthStore.getState().authUser?._id;
-        if (myId) {
-          const nextCache = upsertRecentDmConversation({
-            myUserId: myId,
-            otherUser: selectedUser,
-            message: res.data,
-          });
-          set({ recentConversations: nextCache });
-        }
+        await get().getConversations();
       } catch {
-        // ignore cache failures
+        // ignore
       }
     } catch (error) {
       const msg =
@@ -259,47 +381,47 @@ export const useChatStore = create((set, get) => ({
     socket.off("newMessage");
     socket.on("newMessage", (newMessage) => {
       set((state) => {
-        const selected = state.selectedUser;
-        const myId = useAuthStore.getState().authUser._id;
-
-        // Update recent conversations cache even if user is not in this chat right now
+        // Update conversation list preview/order (best effort)
         try {
-          const otherId =
-            newMessage.senderId === myId
-              ? newMessage.receiverId
-              : newMessage.senderId;
-          const otherUser =
-            state.users.find((u) => String(u._id) === String(otherId)) ||
-            (selected && String(selected._id) === String(otherId)
-              ? selected
-              : null);
-          if (otherUser) {
-            const nextCache = upsertRecentDmConversation({
-              myUserId: myId,
-              otherUser,
-              message: newMessage,
-            });
-            // Return state with updated cache; keep other state changes below
-            state = { ...state, recentConversations: nextCache };
+          const cid = String(newMessage.conversationId || "");
+          if (cid) {
+            const idx = state.conversations.findIndex(
+              (c) => String(c.conversationId) === cid,
+            );
+            if (idx >= 0) {
+              const old = state.conversations[idx];
+              const updated = {
+                ...old,
+                lastMessage: newMessage,
+                lastMessageAt: newMessage.createdAt,
+                lastMessageId: newMessage._id,
+              };
+              const next = state.conversations.slice();
+              next.splice(idx, 1);
+              next.unshift(updated);
+              state = { ...state, conversations: next };
+            }
           }
         } catch {
           // ignore
         }
 
         // If no chat is selected, we don't append message into messages[] view
-        if (!selected?._id) return state;
-
-        const isCurrentConversation =
-          (newMessage.senderId === myId &&
-            newMessage.receiverId === selected._id) ||
-          (newMessage.senderId === selected._id &&
-            newMessage.receiverId === myId);
-
-        if (!isCurrentConversation) return state;
+        if (!state.selectedConversation?.conversationId) return state;
+        if (
+          String(newMessage.conversationId || "") !==
+          String(state.selectedConversation.conversationId)
+        )
+          return state;
 
         // Once a message arrives, clear "typing" indicator for this chat.
         if (state._typingTimer) clearTimeout(state._typingTimer);
-        state = { ...state, isTyping: false, _typingTimer: null };
+        state = {
+          ...state,
+          isTyping: false,
+          typingFromUserId: null,
+          _typingTimer: null,
+        };
 
         const exists = state.messages.some((m) => m._id === newMessage._id);
         if (exists) return state;
@@ -308,29 +430,33 @@ export const useChatStore = create((set, get) => ({
       });
     });
 
-    // TYPING
-    socket.off("typing");
-    socket.on("typing", ({ from } = {}) => {
+    // TYPING (conversation rooms)
+    socket.off("typingInConversation");
+    socket.on("typingInConversation", ({ from, conversationId } = {}) => {
       set((state) => {
-        const selected = state.selectedUser;
-        if (!selected?._id) return state;
-        if (String(from) !== String(selected._id)) return state;
+        if (!state.selectedConversation?.conversationId) return state;
+        if (String(conversationId) !== String(state.selectedConversation.conversationId))
+          return state;
+        if (String(from) === String(useAuthStore.getState().authUser?._id))
+          return state;
         if (state._typingTimer) clearTimeout(state._typingTimer);
         const timer = setTimeout(() => {
-          set({ isTyping: false, _typingTimer: null });
+          set({ isTyping: false, typingFromUserId: null, _typingTimer: null });
         }, TYPING_WINDOW_MS);
-        return { isTyping: true, _typingTimer: timer };
+        return { isTyping: true, typingFromUserId: String(from), _typingTimer: timer };
       });
     });
 
-    socket.off("stopTyping");
-    socket.on("stopTyping", ({ from } = {}) => {
+    socket.off("stopTypingInConversation");
+    socket.on("stopTypingInConversation", ({ from, conversationId } = {}) => {
       set((state) => {
-        const selected = state.selectedUser;
-        if (!selected?._id) return state;
-        if (String(from) !== String(selected._id)) return state;
+        if (!state.selectedConversation?.conversationId) return state;
+        if (String(conversationId) !== String(state.selectedConversation.conversationId))
+          return state;
+        if (String(from) === String(useAuthStore.getState().authUser?._id))
+          return state;
         if (state._typingTimer) clearTimeout(state._typingTimer);
-        return { isTyping: false, _typingTimer: null };
+        return { isTyping: false, typingFromUserId: null, _typingTimer: null };
       });
     });
 
@@ -380,8 +506,8 @@ export const useChatStore = create((set, get) => ({
   unsubscribeFromMessages: () => {
     const socket = useAuthStore.getState().socket;
     socket.off("newMessage");
-    socket.off("typing");
-    socket.off("stopTyping");
+    socket.off("typingInConversation");
+    socket.off("stopTypingInConversation");
     socket.off("messageRecalled"); // 🔥 thêm dòng này
     socket.off("messageRecalledMe");
     socket.off("messageEdited");
@@ -389,15 +515,27 @@ export const useChatStore = create((set, get) => ({
 
     const t = get()._typingTimer;
     if (t) clearTimeout(t);
-    set({ isTyping: false, _typingTimer: null });
+    set({ isTyping: false, typingFromUserId: null, _typingTimer: null });
   },
 
   // =========================
-  // SELECT USER
+  // SELECT CONVERSATION
   // =========================
-  setSelectedUser: (selectedUser) => {
+  setSelectedConversation: (selectedConversation) => {
     const t = get()._typingTimer;
     if (t) clearTimeout(t);
-    set({ selectedUser, isTyping: false, _typingTimer: null });
+    set({ selectedConversation, isTyping: false, typingFromUserId: null, _typingTimer: null });
+
+    // Socket room join/leave (best effort)
+    try {
+      const socket = useAuthStore.getState().socket;
+      if (socket && selectedConversation?.conversationId) {
+        socket.emit("joinConversation", {
+          conversationId: selectedConversation.conversationId,
+        });
+      }
+    } catch {
+      // ignore
+    }
   },
 }));

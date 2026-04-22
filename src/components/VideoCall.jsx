@@ -10,13 +10,14 @@ import { axiosInstance } from "../lib/axios";
 import { useAuthStore } from "../store/useAuthStore";
 
 export default function VideoCall({
-  myId,
+  myId: _myId,
   remoteId,
   roomName,
   autoStart = false,
   forceEndSignal = 0,
   onEnd,
 }) {
+  void _myId;
   const localVideo = useRef(null);
   const remoteVideo = useRef(null);
   const remoteAudio = useRef(null);
@@ -110,11 +111,15 @@ export default function VideoCall({
       if (pub) {
         try {
           await room.localParticipant.unpublishTrack(pub.track, true);
-        } catch {}
+        } catch {
+          // ignore
+        }
       } else if (prevTrack) {
         try {
           await room.localParticipant.unpublishTrack(prevTrack, true);
-        } catch {}
+        } catch {
+          // ignore
+        }
       }
     } catch (e) {
       console.error("switchCamera failed:", e);
@@ -141,11 +146,15 @@ export default function VideoCall({
       if (pub) {
         try {
           await room.localParticipant.unpublishTrack(pub.track, true);
-        } catch {}
+        } catch {
+          // ignore
+        }
       } else if (prevTrack) {
         try {
           await room.localParticipant.unpublishTrack(prevTrack, true);
-        } catch {}
+        } catch {
+          // ignore
+        }
       }
     } catch (e) {
       console.error("switchMicrophone failed:", e);
@@ -189,18 +198,22 @@ export default function VideoCall({
       if (sendHangup && socket && remoteId && roomName) {
         socket.emit("hangup", { to: remoteId, roomName });
       }
-    } catch {}
+    } catch {
+      // ignore
+    }
 
     try {
       room.disconnect();
-    } catch {}
+    } catch {
+      // ignore
+    }
 
     setCallStatus("ended");
     onEnd && onEnd();
   };
 
   useEffect(() => {
-    const onSubscribed = (track, _pub, _participant) => {
+    const onSubscribed = (track) => {
       if (track.kind === Track.Kind.Video && remoteVideo.current) {
         track.attach(remoteVideo.current);
       }
@@ -213,7 +226,9 @@ export default function VideoCall({
     const onUnsubscribed = (track) => {
       try {
         track.detach();
-      } catch {}
+      } catch {
+        // ignore
+      }
     };
 
     room.on(RoomEvent.TrackSubscribed, onSubscribed);
@@ -224,7 +239,9 @@ export default function VideoCall({
       room.off(RoomEvent.TrackUnsubscribed, onUnsubscribed);
       try {
         room.disconnect();
-      } catch {}
+      } catch {
+        // ignore
+      }
     };
   }, [room]);
 
@@ -253,11 +270,15 @@ export default function VideoCall({
     const handler = () => refreshDevices();
     try {
       navigator.mediaDevices?.addEventListener?.("devicechange", handler);
-    } catch {}
+    } catch {
+      // ignore
+    }
     return () => {
       try {
         navigator.mediaDevices?.removeEventListener?.("devicechange", handler);
-      } catch {}
+      } catch {
+        // ignore
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

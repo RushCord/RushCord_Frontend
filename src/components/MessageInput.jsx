@@ -13,7 +13,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   const [showEmoji, setShowEmoji] = useState(false);
   const [files, setFiles] = useState([]);
   const socket = useAuthStore((s) => s.socket);
-  const selectedUser = useChatStore((s) => s.selectedUser);
+  const selectedConversation = useChatStore((s) => s.selectedConversation);
   const typingDebounceRef = useRef(null);
   const lastTypingSentAtRef = useRef(0);
   const typingActiveRef = useRef(false);
@@ -27,12 +27,16 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   const cleanupRecording = () => {
     try {
       if (recordTimerRef.current) clearInterval(recordTimerRef.current);
-    } catch {}
+    } catch {
+      // ignore
+    }
     recordTimerRef.current = null;
     setRecordMs(0);
     try {
       recordStreamRef.current?.getTracks?.().forEach((t) => t.stop());
-    } catch {}
+    } catch {
+      // ignore
+    }
     recordStreamRef.current = null;
     recorderRef.current = null;
     recordChunksRef.current = [];
@@ -65,10 +69,10 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   };
 
   const emitTyping = (isTyping) => {
-    const to = selectedUser?._id;
-    if (!socket || !to) return;
-    if (isTyping) socket.emit("typing", { to });
-    else socket.emit("stopTyping", { to });
+    const cid = selectedConversation?.conversationId;
+    if (!socket || !cid) return;
+    if (isTyping) socket.emit("typingInConversation", { conversationId: cid });
+    else socket.emit("stopTypingInConversation", { conversationId: cid });
   };
 
   useEffect(() => {
@@ -83,7 +87,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
     typingActiveRef.current = false;
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
     cleanupRecording();
-  }, [selectedUser?._id]);
+  }, [selectedConversation?.conversationId]);
 
   useEffect(() => {
     if (!editingMessage) return;

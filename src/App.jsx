@@ -6,6 +6,7 @@ import { ConfirmEmailPage } from "./pages/ConfirmEmailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
+import { FriendsPage } from "./pages/FriendsPage";
 import { useEffect } from "react";
 import { useAuthStore } from "./store/useAuthStore";
 import { Loader } from "lucide-react";
@@ -40,6 +41,7 @@ if(isCheckingAuth && !authUser) return (
         <Route path="/login" element ={!authUser ? <LoginPage/> : <Navigate to="/"/>}/>
         <Route path="/settings" element={<SettingsPage/>}/>
         <Route path="/profile" element={authUser ?<ProfilePage/> : <Navigate to="/login"/>}/>
+        <Route path="/friends" element={authUser ? <FriendsPage /> : <Navigate to="/login" />} />
       </Routes>
 
       <Toaster/>

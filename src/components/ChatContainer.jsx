@@ -7,6 +7,7 @@ import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
 import VideoCall from "../components/VideoCall";
+import GroupVideoCall from "../components/GroupVideoCall";
 import { getFileIcon } from "../lib/utils";
 import {
   Smile,
@@ -111,10 +112,14 @@ const AudioMessage = ({ url, fileName }) => {
 const ChatContainer = () => {
   const {
     messages,
+    users,
+    conversations,
     getMessages,
     isMessagesLoading,
-    selectedUser,
+    selectedConversation,
+    setSelectedConversation,
     isTyping,
+    typingFromUserId,
     subscribeToMessages,
     unsubscribeFromMessages,
     recallMessage,
@@ -137,8 +142,6 @@ const ChatContainer = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [historyMessage, setHistoryMessage] = useState(null);
   const [reactingForMessageId, setReactingForMessageId] = useState(null);
-  const users = useChatStore((s) => s.users);
-  const setSelectedUser = useChatStore((s) => s.setSelectedUser);
   const getFileName = (url) => {
     try {
       return url.split("/").pop().split("?")[0];
@@ -218,27 +221,33 @@ const ChatContainer = () => {
   // LOAD MESSAGES
   // =========================
   useEffect(() => {
-    if (!selectedUser?._id) return;
+    if (!selectedConversation?.conversationId) return;
 
-    getMessages(selectedUser._id);
+    getMessages(selectedConversation.conversationId);
     subscribeToMessages();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEditingMessage(null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistoryMessage(null);
 
     return () => {
       unsubscribeFromMessages();
     };
-  }, [selectedUser?._id]);
+  }, [selectedConversation?.conversationId]);
 
   // =========================
   // RESET CALL WHEN CHANGE USER
   // =========================
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsCalling(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCallPeerId(null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCallRoomName(null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEndSignal(0);
-  }, [selectedUser?._id]);
+  }, [selectedConversation?.conversationId]);
 
   // =========================
   // AUTO SCROLL
@@ -259,19 +268,32 @@ const ChatContainer = () => {
       <div className="flex-1 flex flex-col overflow-auto">
         <ChatHeader
           onCall={() => {
-            if (!selectedUser?._id) return;
+            if (!selectedConversation) return;
+            if (selectedConversation.type === "GROUP") {
+              const roomName = String(selectedConversation.conversationId || "").trim();
+              if (!roomName) return;
+              setCallPeerId(null);
+              setCallRoomName(roomName);
+              setIsCalling(true);
+              if (socket) socket.emit("callInviteGroup", { conversationId: roomName });
+              return;
+            }
+
+            if (selectedConversation.type !== "DM") return;
+            const otherUserId = selectedConversation.otherUserId;
+            if (!otherUserId) return;
             const roomName = (() => {
               const a = String(authUser?._id || "");
-              const b = String(selectedUser._id || "");
+              const b = String(otherUserId || "");
               const [x, y] = [a, b].sort();
               return `DM#${x}#${y}`;
             })();
-            setCallPeerId(selectedUser._id);
+            setCallPeerId(otherUserId);
             setCallRoomName(roomName);
             setIsCalling(true);
-            if (socket) socket.emit("callInvite", { to: selectedUser._id, roomName });
+            if (socket) socket.emit("callInvite", { to: otherUserId, roomName });
           }}
-          callDisabled={!selectedUser}
+          callDisabled={!selectedConversation}
         />
         <MessageSkeleton />
         <MessageInput />
@@ -283,29 +305,53 @@ const ChatContainer = () => {
     <div className="flex-1 flex flex-col overflow-auto relative">
       <ChatHeader
         onCall={() => {
-          if (!selectedUser?._id) return;
+          if (!selectedConversation) return;
+          if (selectedConversation.type === "GROUP") {
+            const roomName = String(selectedConversation.conversationId || "").trim();
+            if (!roomName) return;
+            setCallPeerId(null);
+            setCallRoomName(roomName);
+            setIsCalling(true);
+            if (socket) socket.emit("callInviteGroup", { conversationId: roomName });
+            return;
+          }
+
+          if (selectedConversation.type !== "DM") return;
+          const otherUserId = selectedConversation.otherUserId;
+          if (!otherUserId) return;
           const roomName = (() => {
             const a = String(authUser?._id || "");
-            const b = String(selectedUser._id || "");
+            const b = String(otherUserId || "");
             const [x, y] = [a, b].sort();
             return `DM#${x}#${y}`;
           })();
-          setCallPeerId(selectedUser._id);
+          setCallPeerId(otherUserId);
           setCallRoomName(roomName);
           setIsCalling(true);
-          if (socket) socket.emit("callInvite", { to: selectedUser._id, roomName });
+          if (socket) socket.emit("callInvite", { to: otherUserId, roomName });
         }}
-        callDisabled={!selectedUser}
+        callDisabled={!selectedConversation}
       />
 
       {/* VIDEO CALL */}
-      {isCalling && selectedUser && (
+      {isCalling && selectedConversation && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-3xl bg-gray-900 rounded-xl shadow-2xl border border-white/10 overflow-hidden">
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10">
               <h1 className="text-white text-base sm:text-lg font-semibold truncate">
-                Video Call with{" "}
-                <span className="text-blue-400">{selectedUser?.fullName}</span>
+                {selectedConversation?.type === "GROUP" ? (
+                  <>
+                    Group call:{" "}
+                    <span className="text-blue-400">
+                      {selectedConversation?.title || selectedConversation?.conversationId}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Video Call with{" "}
+                    <span className="text-blue-400">{selectedConversation?.otherUserId}</span>
+                  </>
+                )}
               </h1>
               <button
                 type="button"
@@ -320,19 +366,38 @@ const ChatContainer = () => {
 
             <div className="p-3 sm:p-4">
               <div className="w-full">
-                <VideoCall
-                  myId={authUser._id}
-                  remoteId={callPeerId || selectedUser._id}
-                  roomName={callRoomName}
-                  autoStart={true}
-                  forceEndSignal={endSignal}
-                  onEnd={() => {
-                    setIsCalling(false);
-                    setCallRoomName(null);
-                    setCallPeerId(null);
-                    setEndSignal(0);
-                  }}
-                />
+                {selectedConversation?.type === "GROUP" ? (
+                  <GroupVideoCall
+                    roomName={callRoomName}
+                    autoStart={true}
+                    forceEndSignal={endSignal}
+                    getDisplayName={(identity) => {
+                      const id = String(identity || "");
+                      const u = users.find((x) => String(x._id) === id);
+                      return u?.fullName || id;
+                    }}
+                    onEnd={() => {
+                      setIsCalling(false);
+                      setCallRoomName(null);
+                      setCallPeerId(null);
+                      setEndSignal(0);
+                    }}
+                  />
+                ) : (
+                  <VideoCall
+                    myId={authUser._id}
+                    remoteId={callPeerId || selectedConversation.otherUserId}
+                    roomName={callRoomName}
+                    autoStart={true}
+                    forceEndSignal={endSignal}
+                    onEnd={() => {
+                      setIsCalling(false);
+                      setCallRoomName(null);
+                      setCallPeerId(null);
+                      setEndSignal(0);
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -344,25 +409,72 @@ const ChatContainer = () => {
         <div className="fixed top-4 right-4 z-60 bg-white/5 backdrop-blur p-3 rounded-lg border">
           <div className="flex items-center gap-3">
             <div className="flex-1 text-white">
-              📞 Incoming call from{" "}
-              {users.find((u) => u._id === incomingCall.from)?.fullName ||
-                incomingCall.from}
+              {(() => {
+                const kind = String(incomingCall?.kind || "").toUpperCase();
+                const isGroup = kind === "GROUP";
+                if (isGroup) {
+                  const cid = String(incomingCall?.conversationId || incomingCall?.roomName || "");
+                  const conv = conversations.find((c) => String(c.conversationId) === cid);
+                  const name = conv?.title || cid || "Group";
+                  return (
+                    <>
+                      📞 Incoming group call:{" "}
+                      <span className="text-blue-300">{name}</span>
+                    </>
+                  );
+                }
+                const fromName =
+                  users.find((u) => String(u._id) === String(incomingCall.from))?.fullName ||
+                  incomingCall.from;
+                return (
+                  <>
+                    📞 Incoming call from{" "}
+                    <span className="text-blue-300">{fromName}</span>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  const caller = users.find(
-                    (u) => u._id === incomingCall.from,
-                  ) || {
-                    _id: incomingCall.from,
-                    fullName: incomingCall.from,
-                  };
+                  const kind = String(incomingCall?.kind || "").toUpperCase();
+                  const isGroup = kind === "GROUP";
+
+                  if (isGroup) {
+                    const cid = String(incomingCall?.conversationId || incomingCall?.roomName || "").trim();
+                    if (!cid) return;
+                    const conv =
+                      conversations.find((c) => String(c.conversationId) === cid) || null;
+
+                    setCallPeerId(null);
+                    setCallRoomName(cid);
+                    setSelectedConversation(
+                      conv || { conversationId: cid, type: "GROUP", title: "", avatar: "" },
+                    );
+                    clearIncomingCall();
+                    setIsCalling(true);
+                    return;
+                  }
+
+                  const caller =
+                    users.find((u) => String(u._id) === String(incomingCall.from)) || {
+                      _id: incomingCall.from,
+                      fullName: incomingCall.from,
+                    };
 
                   // Ensure VideoCall mounts with the correct peer id even if selectedUser updates later.
                   setCallPeerId(incomingCall.from);
                   setCallRoomName(incomingCall.roomName || null);
-                  setSelectedUser(caller);
+                  setSelectedConversation({
+                    conversationId:
+                      incomingCall.roomName ||
+                      `DM#${[String(authUser?._id || ""), String(incomingCall.from || "")]
+                        .sort()
+                        .join("#")}`,
+                    type: "DM",
+                    otherUserId: caller._id,
+                  });
                   clearIncomingCall();
                   setIsCalling(true);
                   if (socket)
@@ -378,12 +490,13 @@ const ChatContainer = () => {
 
               <button
                 onClick={() => {
-                  if (socket)
+                  const kind = String(incomingCall?.kind || "").toUpperCase();
+                  const isGroup = kind === "GROUP";
+                  if (!isGroup && socket)
                     socket.emit("callReject", {
                       to: incomingCall.from,
                       roomName: incomingCall.roomName,
                     });
-
                   clearIncomingCall();
                 }}
                 className="bg-red-600 text-white px-3 py-1 rounded"
@@ -397,7 +510,38 @@ const ChatContainer = () => {
 
       {/* MESSAGES */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {selectedConversation?.type === "DM" && messages.length === 0 && (
+          <div className="flex justify-center pt-6">
+            <div className="max-w-[95%] sm:max-w-[520px] text-center rounded-xl border border-base-300 bg-base-200 px-4 py-3 text-sm text-base-content/80">
+              {(() => {
+                const otherId = selectedConversation?.otherUserId;
+                const otherName =
+                  users.find((u) => String(u._id) === String(otherId))?.fullName ||
+                  "người ấy";
+                return (
+                  <>
+                    Bạn và <span className="font-medium">{otherName}</span> đã trở thành bạn bè.
+                    {" "}
+                    Hãy gửi lời chào để bắt đầu cuộc trò chuyện nhé!
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
         {messages.map((message, index) => (
+          message?.isSystem ? (
+            <div
+              key={message._id}
+              ref={index === messages.length - 1 ? messageEndRef : null}
+              className="flex justify-center"
+            >
+              <div className="px-3 py-1 rounded-full bg-base-200 border border-base-300 text-xs text-base-content/70 max-w-[90%] text-center">
+                {message.text || ""}
+              </div>
+            </div>
+          ) : (
           <div
             key={message._id}
             className={`chat group ${
@@ -412,15 +556,31 @@ const ChatContainer = () => {
                   src={
                     message.senderId === authUser._id
                       ? authUser.profilePic || "/avatar.png"
-                      : selectedUser.profilePic || "/avatar.png"
+                      : (() => {
+                          const sender = users.find(
+                            (u) => String(u._id) === String(message.senderId),
+                          );
+                          return sender?.profilePic || "/avatar.png";
+                        })()
                   }
                   alt="profile"
                 />
               </div>
             </div>
 
-            {/* TIME */}
+            {/* HEADER: name (group) + time */}
             <div className="chat-header mb-1">
+              {selectedConversation?.type === "GROUP" &&
+                message.senderId !== authUser._id && (
+                  <span className="text-xs font-medium mr-2">
+                    {(() => {
+                      const sender = users.find(
+                        (u) => String(u._id) === String(message.senderId),
+                      );
+                      return sender?.fullName || message.senderId;
+                    })()}
+                  </span>
+                )}
               <time className="text-xs opacity-50 ml-1">
                 {formatMessageTime(message.createdAt)}
               </time>
@@ -692,11 +852,19 @@ const ChatContainer = () => {
               <div className="chat-footer">{renderReactions(message)}</div>
             )}
           </div>
+          )
         ))}
       </div>
-      {selectedUser && isTyping && (
-        <div className="px-4 pb-1 text-sm text-zinc-400">
-          {selectedUser.fullName} đang gõ...
+      {selectedConversation && isTyping && (
+        <div className="px-4 pb-1 text-sm text-base-content/60">
+          {(() => {
+            const fromId = typingFromUserId;
+            if (!fromId) return "Đang gõ...";
+            const u = users.find((x) => String(x._id) === String(fromId));
+            const name = u?.fullName || fromId;
+            // For DM it can still be useful; for GROUP it's required.
+            return `${name} đang gõ...`;
+          })()}
         </div>
       )}
       {recallPromptMessage && (

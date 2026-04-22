@@ -180,13 +180,31 @@ export const useAuthStore = create((set, get) => ({
       set({ onlineUsers: userIds });
     });
 
-    socket.on("incomingCall", ({ from, roomName }) => {
-      set({ incomingCall: { from, roomName } });
+    socket.on("incomingCall", ({ from, roomName, conversationId, kind }) => {
+      set({
+        incomingCall: {
+          from,
+          roomName,
+          conversationId: conversationId || roomName || null,
+          kind: kind || null,
+        },
+      });
     });
 
-    socket.on("hangup", ({ from }) => {
+    socket.on("hangup", ({ from, roomName, conversationId, kind }) => {
       const ic = get().incomingCall;
-      if (ic && ic.from === from) set({ incomingCall: null });
+      if (!ic) return;
+      const icRoom = String(ic.conversationId || ic.roomName || "");
+      const evRoom = String(conversationId || roomName || "");
+      const icKind = String(ic.kind || "").toUpperCase();
+      const evKind = String(kind || "").toUpperCase();
+
+      // If server didn't send kind, fall back to matching by from only.
+      const kindMatches = !evKind || !icKind || icKind === evKind;
+      const roomMatches = !evRoom || !icRoom || evRoom === icRoom;
+      if (String(ic.from) === String(from) && kindMatches && roomMatches) {
+        set({ incomingCall: null });
+      }
     });
 
     socket.on("connect", () => {
