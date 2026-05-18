@@ -9,13 +9,7 @@ import { formatMessageTime } from "../lib/utils";
 import VideoCall from "../components/VideoCall";
 import GroupVideoCall from "../components/GroupVideoCall";
 import { getFileIcon } from "../lib/utils";
-import {
-  Smile,
-  MoreHorizontal,
-  Play,
-  Pause,
-  Mic,
-} from "lucide-react";
+import { Smile, MoreHorizontal, Play, Pause, Mic, Crown } from "lucide-react";
 import EmojiPicker from "emoji-picker-react";
 
 const formatSeconds = (sec) => {
@@ -37,8 +31,10 @@ const AudioMessage = ({ url, fileName }) => {
     const el = audioRef.current;
     if (!el) return;
 
-    const onLoaded = () => setDuration(Number.isFinite(el.duration) ? el.duration : 0);
-    const onTime = () => setCurrent(Number.isFinite(el.currentTime) ? el.currentTime : 0);
+    const onLoaded = () =>
+      setDuration(Number.isFinite(el.duration) ? el.duration : 0);
+    const onTime = () =>
+      setCurrent(Number.isFinite(el.currentTime) ? el.currentTime : 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => setIsPlaying(false);
@@ -83,13 +79,20 @@ const AudioMessage = ({ url, fileName }) => {
           aria-label={isPlaying ? "Pause audio" : "Play audio"}
           title={isPlaying ? "Tạm dừng" : "Phát"}
         >
-          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+          {isPlaying ? (
+            <Pause className="w-5 h-5" />
+          ) : (
+            <Play className="w-5 h-5 ml-0.5" />
+          )}
         </button>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Mic className="w-4 h-4 text-base-content/60 shrink-0" />
-            <div className="truncate text-sm text-base-content" title={safeName}>
+            <div
+              className="truncate text-sm text-base-content"
+              title={safeName}
+            >
               {safeName}
             </div>
             <div className="ml-auto text-xs text-base-content/60 tabular-nums shrink-0">
@@ -128,7 +131,8 @@ const ChatContainer = () => {
     reactToMessage,
   } = useChatStore();
 
-  const { authUser, incomingCall, clearIncomingCall, socket } = useAuthStore();
+  const { authUser, incomingCall, clearIncomingCall, socket, onlineUsers } =
+    useAuthStore();
   const messageEndRef = useRef(null);
   const [isCalling, setIsCalling] = useState(false);
   // The actual peer we are calling / answering. Avoids races with selectedUser updates.
@@ -142,6 +146,7 @@ const ChatContainer = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [historyMessage, setHistoryMessage] = useState(null);
   const [reactingForMessageId, setReactingForMessageId] = useState(null);
+  const [showMembersPanel, setShowMembersPanel] = useState(true);
   const getFileName = (url) => {
     try {
       return url.split("/").pop().split("?")[0];
@@ -267,6 +272,52 @@ const ChatContainer = () => {
     };
   }, [isCalling]);
 
+  const memberRows = (() => {
+    if (!selectedConversation) return [];
+    if (selectedConversation.type === "GROUP") {
+      const ids = new Set();
+      const rows = [];
+      for (const m of messages) {
+        const sid = String(m?.senderId || "");
+        if (!sid || sid === "RushCordAI" || ids.has(sid)) continue;
+        ids.add(sid);
+        const u = users.find((x) => String(x._id) === sid);
+        rows.push({
+          id: sid,
+          name: u?.fullName || sid,
+          avatar: u?.profilePic || "/avatar.png",
+          online: onlineUsers.includes(sid),
+        });
+      }
+      if (authUser?._id && !ids.has(String(authUser._id))) {
+        rows.unshift({
+          id: String(authUser._id),
+          name: authUser.fullName || "You",
+          avatar: authUser.profilePic || "/avatar.png",
+          online: onlineUsers.includes(String(authUser._id)),
+        });
+      }
+      return rows;
+    }
+    const other = users.find(
+      (u) => String(u._id) === String(selectedConversation.otherUserId),
+    );
+    return [
+      {
+        id: String(authUser?._id || "me"),
+        name: authUser?.fullName || "You",
+        avatar: authUser?.profilePic || "/avatar.png",
+        online: onlineUsers.includes(String(authUser?._id || "")),
+      },
+      {
+        id: String(other?._id || selectedConversation.otherUserId || "other"),
+        name: other?.fullName || "User",
+        avatar: other?.profilePic || "/avatar.png",
+        online: onlineUsers.includes(String(other?._id || "")),
+      },
+    ];
+  })();
+
   // =========================
   // LOADING
   // =========================
@@ -277,12 +328,15 @@ const ChatContainer = () => {
           onCall={() => {
             if (!selectedConversation) return;
             if (selectedConversation.type === "GROUP") {
-              const roomName = String(selectedConversation.conversationId || "").trim();
+              const roomName = String(
+                selectedConversation.conversationId || "",
+              ).trim();
               if (!roomName) return;
               setCallPeerId(null);
               setCallRoomName(roomName);
               setIsCalling(true);
-              if (socket) socket.emit("callInviteGroup", { conversationId: roomName });
+              if (socket)
+                socket.emit("callInviteGroup", { conversationId: roomName });
               return;
             }
 
@@ -298,7 +352,8 @@ const ChatContainer = () => {
             setCallPeerId(otherUserId);
             setCallRoomName(roomName);
             setIsCalling(true);
-            if (socket) socket.emit("callInvite", { to: otherUserId, roomName });
+            if (socket)
+              socket.emit("callInvite", { to: otherUserId, roomName });
           }}
           callDisabled={!selectedConversation}
         />
@@ -309,17 +364,20 @@ const ChatContainer = () => {
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden bg-[var(--discord-chat)]">
+    <div className="relative flex flex-1 flex-col overflow-hidden bg-(--discord-chat)">
       <ChatHeader
         onCall={() => {
           if (!selectedConversation) return;
           if (selectedConversation.type === "GROUP") {
-            const roomName = String(selectedConversation.conversationId || "").trim();
+            const roomName = String(
+              selectedConversation.conversationId || "",
+            ).trim();
             if (!roomName) return;
             setCallPeerId(null);
             setCallRoomName(roomName);
             setIsCalling(true);
-            if (socket) socket.emit("callInviteGroup", { conversationId: roomName });
+            if (socket)
+              socket.emit("callInviteGroup", { conversationId: roomName });
             return;
           }
 
@@ -338,6 +396,8 @@ const ChatContainer = () => {
           if (socket) socket.emit("callInvite", { to: otherUserId, roomName });
         }}
         callDisabled={!selectedConversation}
+        onToggleMembers={() => setShowMembersPanel((v) => !v)}
+        membersOpen={showMembersPanel}
       />
 
       {/* VIDEO CALL */}
@@ -350,13 +410,16 @@ const ChatContainer = () => {
                   <>
                     Group call:{" "}
                     <span className="text-blue-400">
-                      {selectedConversation?.title || selectedConversation?.conversationId}
+                      {selectedConversation?.title ||
+                        selectedConversation?.conversationId}
                     </span>
                   </>
                 ) : (
                   <>
                     Video Call with{" "}
-                    <span className="text-blue-400">{selectedConversation?.otherUserId}</span>
+                    <span className="text-blue-400">
+                      {selectedConversation?.otherUserId}
+                    </span>
                   </>
                 )}
               </h1>
@@ -420,8 +483,14 @@ const ChatContainer = () => {
                 const kind = String(incomingCall?.kind || "").toUpperCase();
                 const isGroup = kind === "GROUP";
                 if (isGroup) {
-                  const cid = String(incomingCall?.conversationId || incomingCall?.roomName || "");
-                  const conv = conversations.find((c) => String(c.conversationId) === cid);
+                  const cid = String(
+                    incomingCall?.conversationId ||
+                      incomingCall?.roomName ||
+                      "",
+                  );
+                  const conv = conversations.find(
+                    (c) => String(c.conversationId) === cid,
+                  );
                   const name = conv?.title || cid || "Group";
                   return (
                     <>
@@ -431,8 +500,8 @@ const ChatContainer = () => {
                   );
                 }
                 const fromName =
-                  users.find((u) => String(u._id) === String(incomingCall.from))?.fullName ||
-                  incomingCall.from;
+                  users.find((u) => String(u._id) === String(incomingCall.from))
+                    ?.fullName || incomingCall.from;
                 return (
                   <>
                     📞 Incoming call from{" "}
@@ -449,26 +518,38 @@ const ChatContainer = () => {
                   const isGroup = kind === "GROUP";
 
                   if (isGroup) {
-                    const cid = String(incomingCall?.conversationId || incomingCall?.roomName || "").trim();
+                    const cid = String(
+                      incomingCall?.conversationId ||
+                        incomingCall?.roomName ||
+                        "",
+                    ).trim();
                     if (!cid) return;
                     const conv =
-                      conversations.find((c) => String(c.conversationId) === cid) || null;
+                      conversations.find(
+                        (c) => String(c.conversationId) === cid,
+                      ) || null;
 
                     setCallPeerId(null);
                     setCallRoomName(cid);
                     setSelectedConversation(
-                      conv || { conversationId: cid, type: "GROUP", title: "", avatar: "" },
+                      conv || {
+                        conversationId: cid,
+                        type: "GROUP",
+                        title: "",
+                        avatar: "",
+                      },
                     );
                     clearIncomingCall();
                     setIsCalling(true);
                     return;
                   }
 
-                  const caller =
-                    users.find((u) => String(u._id) === String(incomingCall.from)) || {
-                      _id: incomingCall.from,
-                      fullName: incomingCall.from,
-                    };
+                  const caller = users.find(
+                    (u) => String(u._id) === String(incomingCall.from),
+                  ) || {
+                    _id: incomingCall.from,
+                    fullName: incomingCall.from,
+                  };
 
                   // Ensure VideoCall mounts with the correct peer id even if selectedUser updates later.
                   setCallPeerId(incomingCall.from);
@@ -476,7 +557,10 @@ const ChatContainer = () => {
                   setSelectedConversation({
                     conversationId:
                       incomingCall.roomName ||
-                      `DM#${[String(authUser?._id || ""), String(incomingCall.from || "")]
+                      `DM#${[
+                        String(authUser?._id || ""),
+                        String(incomingCall.from || ""),
+                      ]
                         .sort()
                         .join("#")}`,
                     type: "DM",
@@ -515,381 +599,454 @@ const ChatContainer = () => {
         </div>
       )}
 
-      {/* MESSAGES */}
-      <div className="discord-scroll mobile-chat-scroll flex-1 overflow-y-auto px-5 py-6 space-y-4">
-        {selectedConversation?.type === "DM" && messages.length === 0 && (
-          <div className="flex justify-center pt-6">
-            <div className="max-w-[95%] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm text-base-content/80 sm:max-w-[520px]">
-              {(() => {
-                const otherId = selectedConversation?.otherUserId;
-                const otherName =
-                  users.find((u) => String(u._id) === String(otherId))?.fullName ||
-                  "người ấy";
-                return (
-                  <>
-                    Bạn và <span className="font-medium">{otherName}</span> đã trở thành bạn bè.
-                    {" "}
-                    Hãy gửi lời chào để bắt đầu cuộc trò chuyện nhé!
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
-        {messages.map((message, index) => (
-          message?.isSystem ? (
-            <div
-              key={message._id}
-              ref={index === messages.length - 1 ? messageEndRef : null}
-              className="flex justify-center"
-            >
-              <div className="max-w-[90%] rounded-full border border-white/10 bg-white/5 px-3 py-1 text-center text-xs text-base-content/70">
-                {message.text || ""}
-              </div>
-            </div>
-          ) : (
-          <div
-            key={message._id}
-            className={`chat message-row group px-1 ${
-              message.senderId === authUser._id ? "chat-end" : "chat-start"
-            }`}
-            ref={index === messages.length - 1 ? messageEndRef : null}
-          >
-            {/*
-              Note: use daisyUI chat bubble variants so bubble colors follow `data-theme`.
-            */}
-            {/* AVATAR */}
-            <div className="chat-image avatar">
-              <div className="size-10 rounded-full border border-white/10">
-                <img
-                  src={
-                    message.senderId === authUser._id
-                      ? authUser.profilePic || "/avatar.png"
-                      : String(message.senderId) === "RushCordAI"
-                        ? "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png"
-                      : (() => {
-                          const sender = users.find(
-                            (u) => String(u._id) === String(message.senderId),
-                          );
-                          return sender?.profilePic || "/avatar.png";
-                        })()
-                  }
-                  alt="profile"
-                />
-              </div>
-            </div>
-
-            {/* HEADER: name (group) + time */}
-            <div className="chat-header mb-1">
-              {selectedConversation?.type === "GROUP" &&
-                message.senderId !== authUser._id && (
-                  <span className="text-xs font-medium mr-2">
-                    {(() => {
-                      const sender = users.find(
-                        (u) => String(u._id) === String(message.senderId),
-                      );
-                      return sender?.fullName || message.senderId;
-                    })()}
-                  </span>
-                )}
-              <time className="ml-1 text-xs opacity-50">
-                {formatMessageTime(message.createdAt)}
-              </time>
-            </div>
-
-            {/* MESSAGE */}
-            <div
-              className={[
-                "chat-bubble flex flex-col gap-2 relative max-w-[75%] break-words",
-                "rounded-2xl border border-white/10 shadow-sm",
-                message.senderId === authUser._id
-                  ? "chat-bubble-primary bg-primary text-primary-content"
-                  : "bg-[var(--discord-panel)] text-base-content",
-              ].join(" ")}
-            >
-              {!message.isRecalled &&
-                !message.isDeletedForMe &&
-                message.isEdited &&
-                Array.isArray(message.editHistory) && (
-                  <button
-                    type="button"
-                    className="self-start text-[11px] opacity-70 hover:opacity-100 underline underline-offset-2 mb-1"
-                    onClick={() => setHistoryMessage(message)}
-                    title="Xem lịch sử chỉnh sửa"
-                  >
-                    Đã chỉnh sửa
-                  </button>
-                )}
-              {message.isRecalled ? (
-                <p className="italic text-base-content/60">
-                  {message.senderId === authUser._id
-                    ? "Bạn đã thu hồi tin nhắn với mọi người."
-                    : "Tin nhắn đã bị thu hồi"}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-(--discord-chat)">
+          {/* MESSAGES */}
+          <div className="discord-scroll mobile-chat-scroll flex-1 overflow-y-auto bg-(--discord-chat) px-0 py-4">
+            {messages.length === 0 && (
+              <div className="px-5 pb-6 pt-2">
+                <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-(--discord-rail) text-(--discord-text)">
+                  <Smile className="size-8" />
+                </div>
+                <h2 className="text-3xl font-bold text-white">
+                  Chào mừng bạn đến với #
+                  {selectedConversation?.title || "ghi-chú-tài-nguyên"}!
+                </h2>
+                <p className="mt-2 text-sm text-(--discord-text-muted)">
+                  Đây là sự khởi đầu của kênh #
+                  {selectedConversation?.title || "ghi-chú-tài-nguyên"}.
                 </p>
-              ) : message.isDeletedForMe ? (
-                <p className="italic text-base-content/60">
-                  Bạn đã thu hồi tin nhắn với bản thân.
-                </p>
+                <button
+                  type="button"
+                  className="mt-4 rounded-md bg-(--discord-active) px-3 py-2 text-sm font-medium text-(--discord-text) hover:bg-(--discord-hover)"
+                >
+                  ✏️ Chỉnh sửa kênh
+                </button>
+              </div>
+            )}
+
+            {messages.map((message, index) =>
+              message?.isSystem ? (
+                <div
+                  key={message._id}
+                  ref={index === messages.length - 1 ? messageEndRef : null}
+                  className="px-5 py-1 text-center text-xs text-(--discord-text-muted)"
+                >
+                  {message.text || ""}
+                </div>
               ) : (
-                <>
-                  {/* 🖼️ IMAGE */}
-                  {message.image && (
-                    <img
-                      src={message.image}
-                      alt="attachment"
-                      className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90"
-                      onClick={() => window.open(message.image, "_blank")}
-                    />
-                  )}
-
-                  {/* 🖼️ IMAGES (gallery) */}
-                  {Array.isArray(message.images) && message.images.length > 0 && (
+                <div
+                  key={message._id}
+                  className={`group relative flex w-full gap-3 px-3 py-1 hover:bg-white/5 ${
+                    String(message.senderId) === String(authUser?._id)
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                  ref={index === messages.length - 1 ? messageEndRef : null}
+                >
+                  <img
+                    src={
+                      String(message.senderId) === String(authUser?._id)
+                        ? authUser.profilePic || "/avatar.png"
+                        : String(message.senderId) === "RushCordAI"
+                          ? "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png"
+                          : (() => {
+                              const sender = users.find(
+                                (u) =>
+                                  String(u._id) === String(message.senderId),
+                              );
+                              return sender?.profilePic || "/avatar.png";
+                            })()
+                    }
+                    alt="profile"
+                    className={`mt-1 size-10 rounded-full object-cover ${
+                      String(message.senderId) === String(authUser?._id)
+                        ? "order-2"
+                        : "order-1"
+                    }`}
+                  />
+                  <div
+                    className={`relative min-w-0 max-w-[72%] rounded-2xl px-3 py-2 ${
+                      String(message.senderId) === String(authUser?._id)
+                        ? "bg-(--discord-accent) text-white"
+                        : "bg-(--discord-panel-strong) text-(--discord-text)"
+                    } ${String(message.senderId) === String(authUser?._id) ? "order-1" : "order-2"}`}
+                  >
                     <div
-                      className={`grid gap-2 ${
-                        message.images.length === 1
-                          ? "grid-cols-1"
-                          : message.images.length === 2
-                            ? "grid-cols-2"
-                            : "grid-cols-3"
+                      className={`mb-0.5 flex items-end gap-2 ${
+                        String(message.senderId) === String(authUser?._id)
+                          ? "justify-end"
+                          : ""
                       }`}
                     >
-                      {message.images.slice(0, 5).map((url) => (
-                        <img
-                          key={url}
-                          src={url}
-                          alt="attachment"
-                          className="w-[200px] max-w-full rounded-xl cursor-pointer object-cover hover:opacity-90"
-                          onClick={() => window.open(url, "_blank")}
-                        />
-                      ))}
+                      <span className="text-[14px] font-bold text-white">
+                        {String(message.senderId) === String(authUser?._id)
+                          ? authUser?.fullName || "You"
+                          : users.find(
+                              (u) => String(u._id) === String(message.senderId),
+                            )?.fullName || message.senderId}
+                      </span>
+                      <time
+                        className={`text-[11px] ${
+                          String(message.senderId) === String(authUser?._id)
+                            ? "text-white/80"
+                            : "text-(--discord-text-muted)"
+                        }`}
+                      >
+                        {formatMessageTime(message.createdAt)}
+                      </time>
                     </div>
-                  )}
-
-                  {/* 📄 FILE / 🎞️ VIDEO / 🖼️ IMAGE (fallback) */}
-                  {message.file ? (
-                    typeof message.contentType === "string" &&
-                    message.contentType.startsWith("image/") ? (
-                      <img
-                        src={message.file}
-                        alt="attachment"
-                        className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90"
-                        onClick={() => window.open(message.file, "_blank")}
-                      />
-                    ) : typeof message.contentType === "string" &&
-                      message.contentType.startsWith("video/") ? (
-                      <div className="max-w-[320px]">
-                        <video
-                          src={message.file}
-                          controls
-                          playsInline
-                          className="w-full rounded-xl border border-white/10 bg-black"
-                        />
-                      </div>
-                    ) : typeof message.contentType === "string" &&
-                      message.contentType.startsWith("audio/") ? (
-                      <AudioMessage
-                        url={message.file}
-                        fileName={message.fileName || getFileName(message.file)}
-                      />
-                    ) : (
-                      <a
-                        href={message.file}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex max-w-[260px] items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2 transition hover:bg-white/5"
-                      >
-                      {/* PREVIEW */}
-                      <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-white/5">
-                        <span className="text-xl">
-                          {getFileIcon(message.file)}
-                        </span>
-                        <span className="text-[10px] text-base-content/60">
-                          {(() => {
-                            const name = (message.fileName || getFileName(message.file) || "").toLowerCase();
-                            if (name.endsWith(".pdf")) return "PDF";
-                            if (name.endsWith(".docx")) return "DOCX";
-                            if (name.endsWith(".doc")) return "DOC";
-                            return "FILE";
-                          })()}
-                        </span>
-                      </div>
-
-                      {/* NAME */}
-                      <div className="min-w-0">
-                        <div
-                          className="truncate max-w-[180px] text-sm text-base-content"
-                          title={message.fileName || getFileName(message.file)}
-                        >
-                          {message.fileName || getFileName(message.file)}
-                        </div>
-                        <div className="text-xs text-base-content/60">Nhấn để mở</div>
-                      </div>
-                      </a>
-                    )
-                  ) : null}
-
-                  {/* TEXT */}
-                  {message.text && (
-                    <p>
-                      {message.text}
-                    </p>
-                  )}
-
-                </>
-              )}
-
-              {/* HOVER: react + menu */}
-              {!message.isRecalled && !message.isDeletedForMe && (
-                <div
-                  className={[
-                    "absolute top-1/2 -translate-y-1/2",
-                    message.senderId === authUser._id ? "-left-15" : "-right-15",
-                    "flex flex-row items-center gap-1",
-                    "opacity-0 pointer-events-none",
-                    "group-hover:opacity-100 group-hover:pointer-events-auto",
-                    "transition-opacity",
-                  ].join(" ")}
-                >
-                  <div className="relative" data-react-picker>
-                    <button
-                      type="button"
-                      title="React"
-                      className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setReactingForMessageId((id) =>
-                          id === message._id ? null : message._id,
-                        );
-                      }}
+                    <div
+                      className={`text-[16px] leading-snug ${
+                        String(message.senderId) === String(authUser?._id)
+                          ? "text-right text-white"
+                          : "text-(--discord-text)"
+                      }`}
                     >
-                      <Smile className="w-4 h-4" />
-                    </button>
+                      {!message.isRecalled &&
+                        !message.isDeletedForMe &&
+                        message.isEdited &&
+                        Array.isArray(message.editHistory) && (
+                          <button
+                            type="button"
+                            className={`mb-1 text-[11px] underline underline-offset-2 ${
+                              String(message.senderId) === String(authUser?._id)
+                                ? "text-white/80 hover:text-white"
+                                : "text-(--discord-text-muted) hover:text-(--discord-text)"
+                            }`}
+                            onClick={() => setHistoryMessage(message)}
+                            title="Xem lịch sử chỉnh sửa"
+                          >
+                            Đã chỉnh sửa
+                          </button>
+                        )}
+                      {message.isRecalled ? (
+                        <p className="italic text-(--discord-text-muted)">
+                          {String(message.senderId) === String(authUser?._id)
+                            ? "Bạn đã thu hồi tin nhắn với mọi người."
+                            : "Tin nhắn đã bị thu hồi"}
+                        </p>
+                      ) : message.isDeletedForMe ? (
+                        <p className="italic text-(--discord-text-muted)">
+                          Bạn đã thu hồi tin nhắn với bản thân.
+                        </p>
+                      ) : (
+                        <>
+                          {/* 🖼️ IMAGE */}
+                          {message.image && (
+                            <img
+                              src={message.image}
+                              alt="attachment"
+                              className="mt-1 max-w-[320px] rounded cursor-pointer hover:opacity-90"
+                              onClick={() =>
+                                window.open(message.image, "_blank")
+                              }
+                            />
+                          )}
 
-                    {reactingForMessageId === message._id && (
-                      <div className="absolute z-[70] bottom-full mb-2 right-0">
-                        <EmojiPicker
-                          onEmojiClick={async (emojiData) => {
-                            setReactingForMessageId(null);
-                            await reactToMessage(message._id, emojiData.emoji);
-                          }}
-                          lazyLoadEmojis
-                        />
-                      </div>
+                          {/* 🖼️ IMAGES (gallery) */}
+                          {Array.isArray(message.images) &&
+                            message.images.length > 0 && (
+                              <div
+                                className={`grid gap-2 ${
+                                  message.images.length === 1
+                                    ? "grid-cols-1"
+                                    : message.images.length === 2
+                                      ? "grid-cols-2"
+                                      : "grid-cols-3"
+                                }`}
+                              >
+                                {message.images.slice(0, 5).map((url) => (
+                                  <img
+                                    key={url}
+                                    src={url}
+                                    alt="attachment"
+                                    className="w-[220px] max-w-full rounded cursor-pointer object-cover hover:opacity-90"
+                                    onClick={() => window.open(url, "_blank")}
+                                  />
+                                ))}
+                              </div>
+                            )}
+
+                          {/* 📄 FILE / 🎞️ VIDEO / 🖼️ IMAGE (fallback) */}
+                          {message.file ? (
+                            typeof message.contentType === "string" &&
+                            message.contentType.startsWith("image/") ? (
+                              <img
+                                src={message.file}
+                                alt="attachment"
+                                className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90"
+                                onClick={() =>
+                                  window.open(message.file, "_blank")
+                                }
+                              />
+                            ) : typeof message.contentType === "string" &&
+                              message.contentType.startsWith("video/") ? (
+                              <div className="max-w-[320px]">
+                                <video
+                                  src={message.file}
+                                  controls
+                                  playsInline
+                                  className="w-full rounded border border-white/10 bg-black"
+                                />
+                              </div>
+                            ) : typeof message.contentType === "string" &&
+                              message.contentType.startsWith("audio/") ? (
+                              <AudioMessage
+                                url={message.file}
+                                fileName={
+                                  message.fileName || getFileName(message.file)
+                                }
+                              />
+                            ) : (
+                              <a
+                                href={message.file}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-1 flex max-w-[320px] items-center gap-3 rounded border border-white/10 bg-black/10 px-3 py-2 transition hover:bg-white/5"
+                              >
+                                {/* PREVIEW */}
+                                <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-white/5">
+                                  <span className="text-xl">
+                                    {getFileIcon(message.file)}
+                                  </span>
+                                  <span className="text-[10px] text-base-content/60">
+                                    {(() => {
+                                      const name = (
+                                        message.fileName ||
+                                        getFileName(message.file) ||
+                                        ""
+                                      ).toLowerCase();
+                                      if (name.endsWith(".pdf")) return "PDF";
+                                      if (name.endsWith(".docx")) return "DOCX";
+                                      if (name.endsWith(".doc")) return "DOC";
+                                      return "FILE";
+                                    })()}
+                                  </span>
+                                </div>
+
+                                {/* NAME */}
+                                <div className="min-w-0">
+                                  <div
+                                    className="truncate max-w-[180px] text-sm text-base-content"
+                                    title={
+                                      message.fileName ||
+                                      getFileName(message.file)
+                                    }
+                                  >
+                                    {message.fileName ||
+                                      getFileName(message.file)}
+                                  </div>
+                                  <div className="text-xs text-base-content/60">
+                                    Nhấn để mở
+                                  </div>
+                                </div>
+                              </a>
+                            )
+                          ) : null}
+
+                          {/* TEXT */}
+                          {message.text && <p>{message.text}</p>}
+                        </>
+                      )}
+                    </div>
+                    {!message.isRecalled && !message.isDeletedForMe && (
+                      <div className="mt-1">{renderReactions(message)}</div>
                     )}
-                  </div>
-
-                  <div className="relative" data-message-menu>
-                    <button
-                      type="button"
-                      title="Thêm"
-                      className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMessageMenuId((id) =>
-                          id === message._id ? null : message._id,
-                        );
-                      }}
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-
-                    {messageMenuId === message._id && (
-                      <ul
-                        className="absolute z-[60] bottom-full mb-1 min-w-[11rem] rounded-lg border border-white/10 bg-[var(--discord-panel)] py-1 shadow-lg"
-                        data-message-menu
-                        style={
-                          message.senderId === authUser._id
-                            ? { right: 0 }
-                            : { left: 0 }
-                        }
+                    {!message.isRecalled && !message.isDeletedForMe && (
+                      <div
+                        className={`pointer-events-none absolute top-1 z-20 flex items-start gap-1 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 ${
+                          String(message.senderId) === String(authUser?._id)
+                            ? "-left-20"
+                            : "-right-16"
+                        }`}
                       >
-                        <li>
+                        <div className="relative" data-react-picker>
                           <button
                             type="button"
-                            disabled={
-                              message.senderId !== authUser._id ||
-                              message.isDeletedForMe ||
-                              message.isRecalled ||
-                              !message.text
-                            }
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                            onClick={() => {
-                              if (message.senderId !== authUser._id) return;
-                              if (message.isDeletedForMe || message.isRecalled) return;
-                              if (!message.text) return;
-                              setEditingMessage(message);
-                              setMessageMenuId(null);
+                            title="React"
+                            className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setReactingForMessageId((id) =>
+                                id === message._id ? null : message._id,
+                              );
                             }}
                           >
-                            Chỉnh sửa
+                            <Smile className="w-4 h-4" />
                           </button>
-                        </li>
-                        <li>
+
+                          {reactingForMessageId === message._id && (
+                            <div className="absolute bottom-full right-0 z-70 mb-2">
+                              <EmojiPicker
+                                onEmojiClick={async (emojiData) => {
+                                  setReactingForMessageId(null);
+                                  await reactToMessage(
+                                    message._id,
+                                    emojiData.emoji,
+                                  );
+                                }}
+                                lazyLoadEmojis
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="relative" data-message-menu>
                           <button
                             type="button"
-                            disabled={message.senderId !== authUser._id}
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                            onClick={() => {
-                              if (message.senderId !== authUser._id) return;
-                              setRecallPromptMessage(message);
-                              setMessageMenuId(null);
+                            title="Thêm"
+                            className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMessageMenuId((id) =>
+                                id === message._id ? null : message._id,
+                              );
                             }}
                           >
-                            Thu hồi
+                            <MoreHorizontal className="w-4 h-4" />
                           </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5"
-                            onClick={() => {
-                              handleForward(message);
-                              setMessageMenuId(null);
-                            }}
-                          >
-                            Chuyển tiếp
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            disabled
-                            className="w-full px-3 py-2 text-left text-sm opacity-50 cursor-not-allowed"
-                          >
-                            Trả lời
-                          </button>
-                        </li>
-                      </ul>
+
+                          {messageMenuId === message._id && (
+                            <ul
+                              className="absolute bottom-full z-60 mb-1 min-w-44 rounded-lg border border-white/10 bg-(--discord-panel) py-1 shadow-lg"
+                              data-message-menu
+                              style={
+                                String(message.senderId) ===
+                                String(authUser?._id)
+                                  ? { right: 0 }
+                                  : { left: 0 }
+                              }
+                            >
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    String(message.senderId) !==
+                                      String(authUser?._id) ||
+                                    message.isDeletedForMe ||
+                                    message.isRecalled ||
+                                    !message.text
+                                  }
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  onClick={() => {
+                                    if (
+                                      String(message.senderId) !==
+                                      String(authUser?._id)
+                                    )
+                                      return;
+                                    if (
+                                      message.isDeletedForMe ||
+                                      message.isRecalled
+                                    )
+                                      return;
+                                    if (!message.text) return;
+                                    setEditingMessage(message);
+                                    setMessageMenuId(null);
+                                  }}
+                                >
+                                  Chỉnh sửa
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    String(message.senderId) !==
+                                    String(authUser?._id)
+                                  }
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
+                                  onClick={() => {
+                                    if (
+                                      String(message.senderId) !==
+                                      String(authUser?._id)
+                                    )
+                                      return;
+                                    setRecallPromptMessage(message);
+                                    setMessageMenuId(null);
+                                  }}
+                                >
+                                  Thu hồi
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-white/5"
+                                  onClick={() => {
+                                    handleForward(message);
+                                    setMessageMenuId(null);
+                                  }}
+                                >
+                                  Chuyển tiếp
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="w-full px-3 py-2 text-left text-sm opacity-50 cursor-not-allowed"
+                                >
+                                  Trả lời
+                                </button>
+                              </li>
+                            </ul>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* 😀 REACTIONS (footer so chat-start/end aligns correctly) */}
-            {!message.isRecalled && !message.isDeletedForMe && (
-              <div className="chat-footer">{renderReactions(message)}</div>
+              ),
             )}
           </div>
-          )
-        ))}
-      </div>
-      {selectedConversation && isTyping && (
-        <div className="px-5 pb-1 text-sm text-base-content/60">
-          {(() => {
-            const fromId = typingFromUserId;
-            if (!fromId) return "Đang gõ...";
-            const u = users.find((x) => String(x._id) === String(fromId));
-            const name = u?.fullName || fromId;
-            // For DM it can still be useful; for GROUP it's required.
-            return `${name} đang gõ...`;
-          })()}
+          {selectedConversation && isTyping && (
+            <div className="px-5 pb-1 text-sm text-(--discord-text-muted)">
+              {(() => {
+                const fromId = typingFromUserId;
+                if (!fromId) return "Đang gõ...";
+                const u = users.find((x) => String(x._id) === String(fromId));
+                const name = u?.fullName || fromId;
+                return `${name} đang gõ...`;
+              })()}
+            </div>
+          )}
         </div>
-      )}
+        {showMembersPanel ? (
+          <aside className="hidden w-[240px] min-w-[240px] border-l border-(--discord-border) bg-(--discord-sidebar) px-2 py-3 lg:block">
+            <div className="px-2 text-[12px] font-semibold uppercase tracking-wide text-(--discord-text-muted)">
+              NGOẠI TUYẾN — {memberRows.filter((m) => !m.online).length}
+            </div>
+            <div className="mt-2 space-y-0.5">
+              {memberRows.map((m, idx) => (
+                <div
+                  key={`member_${m.id}_${idx}`}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-(--discord-text) hover:bg-(--discord-hover)"
+                >
+                  <img
+                    src={m.avatar}
+                    alt={m.name}
+                    className={`size-8 rounded-full object-cover ${
+                      m.online ? "" : "grayscale"
+                    }`}
+                  />
+                  <span className="truncate text-sm">{m.name}</span>
+                  {idx === 0 ? (
+                    <Crown className="ml-auto size-3.5 text-[#faa81a]" />
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </aside>
+        ) : null}
+      </div>
+      <MessageInput
+        editingMessage={editingMessage}
+        onCancelEdit={() => setEditingMessage(null)}
+      />
       {recallPromptMessage && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[55] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-55 flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setRecallPromptMessage(null);
           }}
@@ -964,7 +1121,9 @@ const ChatContainer = () => {
           <div className="discord-modal-card discord-scroll max-h-[400px] w-[320px] overflow-y-auto p-4">
             {/* HEADER */}
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-base-content font-semibold">Chọn người nhận</h2>
+              <h2 className="text-base-content font-semibold">
+                Chọn người nhận
+              </h2>
               <button
                 onClick={() => setShowForwardModal(false)}
                 className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
@@ -994,7 +1153,7 @@ const ChatContainer = () => {
       )}
       {historyMessage && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[70] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-70 flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setHistoryMessage(null);
           }}
@@ -1026,8 +1185,10 @@ const ChatContainer = () => {
 
             <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
               <div className="rounded-lg border border-base-300 bg-base-200 p-3">
-                <div className="text-xs text-base-content/60 mb-1">Nội dung hiện tại</div>
-                <div className="text-base-content whitespace-pre-wrap break-words">
+                <div className="text-xs text-base-content/60 mb-1">
+                  Nội dung hiện tại
+                </div>
+                <div className="text-base-content whitespace-pre-wrap wrap-break-word">
                   {historyMessage.text || ""}
                 </div>
               </div>
@@ -1042,7 +1203,8 @@ const ChatContainer = () => {
                       const when = h?.editedAt
                         ? formatMessageTime(h.editedAt)
                         : `#${idx + 1}`;
-                      const prev = typeof h?.prevText === "string" ? h.prevText : "";
+                      const prev =
+                        typeof h?.prevText === "string" ? h.prevText : "";
                       const next =
                         typeof h?.nextText === "string" ? h.nextText : null;
                       return (
@@ -1058,7 +1220,7 @@ const ChatContainer = () => {
                               <div className="text-xs text-base-content/50 mb-1">
                                 Trước
                               </div>
-                              <div className="text-base-content whitespace-pre-wrap break-words">
+                              <div className="text-base-content whitespace-pre-wrap wrap-break-word">
                                 {prev}
                               </div>
                             </div>
@@ -1067,7 +1229,7 @@ const ChatContainer = () => {
                                 <div className="text-xs text-base-content/50 mb-1">
                                   Sau
                                 </div>
-                                <div className="text-base-content whitespace-pre-wrap break-words">
+                                <div className="text-base-content whitespace-pre-wrap wrap-break-word">
                                   {next}
                                 </div>
                               </div>
@@ -1086,11 +1248,6 @@ const ChatContainer = () => {
           </div>
         </div>
       )}
-
-      <MessageInput
-        editingMessage={editingMessage}
-        onCancelEdit={() => setEditingMessage(null)}
-      />
     </div>
   );
 };

@@ -509,13 +509,58 @@ export const HomePage = () => {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[var(--discord-app)]">
+    <div className="h-screen overflow-hidden bg-(--discord-app) text-(--discord-text)">
       <div className="flex h-full min-h-0 w-full overflow-hidden">
-        <section className="conversation-sidebar discord-sidebar flex h-full flex-col">
+        <section className="flex w-[72px] min-w-[72px] flex-col items-center gap-2 bg-(--discord-rail) px-3 py-3">
+          <button
+            type="button"
+            className="relative flex size-12 items-center justify-center rounded-2xl bg-(--discord-accent) text-white"
+            title="Home"
+            onClick={() => setSelectedConversation(null)}
+          >
+            <Home className="size-5" />
+            <span className="absolute -left-3 h-5 w-1 rounded-r-full bg-white" />
+          </button>
+          <div className="my-1 h-px w-8 bg-white/10" />
+          {groupConversations.slice(0, 8).map((c) => {
+            const active =
+              String(selectedConversation?.conversationId) ===
+              String(c.conversationId);
+            return (
+              <button
+                key={`guild_${c.conversationId}`}
+                type="button"
+                className={`relative flex size-12 items-center justify-center rounded-2xl bg-(--discord-sidebar) transition hover:bg-(--discord-active) ${
+                  active ? "bg-(--discord-accent)" : ""
+                }`}
+                title={c.title || "Server"}
+                onClick={() => openConversation(c)}
+              >
+                <img
+                  src={c.avatar || "/avatar.png"}
+                  alt={c.title || "Server"}
+                  className="size-8 rounded-full object-cover"
+                />
+                {active ? (
+                  <span className="absolute -left-3 h-6 w-1 rounded-r-full bg-white" />
+                ) : null}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className="mt-auto flex size-12 items-center justify-center rounded-2xl bg-(--discord-sidebar) text-(--discord-success) transition hover:bg-(--discord-active)"
+            title="Add server"
+          >
+            <Plus className="size-5" />
+          </button>
+        </section>
+
+        <section className="flex h-full w-[240px] min-w-[240px] flex-col bg-(--discord-sidebar)">
           <Sidebar />
         </section>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-white/5">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-white/10">
           {!selectedConversation ? <NoChatSelected /> : <ChatContainer />}
         </div>
       </div>

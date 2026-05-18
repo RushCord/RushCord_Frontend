@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { Paperclip, Send, X, Smile, FileText, Video, Play, Mic, Square } from "lucide-react";
+import {
+  Plus,
+  Send,
+  X,
+  Smile,
+  FileText,
+  Video,
+  Play,
+  Mic,
+  Square,
+  Gift,
+  Grid3x3,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import EmojiPicker from "emoji-picker-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -9,8 +21,14 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   const [text, setText] = useState("");
   const [previews, setPreviews] = useState([]);
   const fileInputRef = useRef(null);
-  const { sendMessage, editMessageText, aiMode, setAiMode, aiChatInConversation, isAiBusy } =
-    useChatStore();
+  const {
+    sendMessage,
+    editMessageText,
+    aiMode,
+    setAiMode,
+    aiChatInConversation,
+    isAiBusy,
+  } = useChatStore();
   const [showEmoji, setShowEmoji] = useState(false);
   const [files, setFiles] = useState([]);
   const socket = useAuthStore((s) => s.socket);
@@ -170,7 +188,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
               resolve(null);
             }
           },
-          { once: true }
+          { once: true },
         );
 
         video.addEventListener(
@@ -179,7 +197,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
             cleanup();
             resolve(null);
           },
-          { once: true }
+          { once: true },
         );
       });
 
@@ -209,7 +227,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
       const okType = (mime && allowedMime.has(mime)) || (!mime && allowedByExt);
       if (!okType) {
         toast.error(
-          "File không đúng định dạng (chỉ hỗ trợ: ảnh, video, audio, pdf, doc/docx)"
+          "File không đúng định dạng (chỉ hỗ trợ: ảnh, video, audio, pdf, doc/docx)",
         );
         continue;
       }
@@ -243,7 +261,8 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         name.endsWith(".doc") ||
         name.endsWith(".docx");
       const isPdf = mime === "application/pdf" || name.endsWith(".pdf");
-      const isDocLegacy = mime === "application/msword" || name.endsWith(".doc");
+      const isDocLegacy =
+        mime === "application/msword" || name.endsWith(".doc");
       const isDocx =
         mime ===
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
@@ -255,7 +274,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
           ? MAX_VIDEO_MB
           : isAudio
             ? MAX_DOC_MB
-          : MAX_DOC_MB;
+            : MAX_DOC_MB;
       const maxBytes = maxMb * MB;
       if (sizeBytes > maxBytes) {
         toast.error(`Dung lượng file vượt giới hạn (tối đa ${maxMb} MB)`);
@@ -322,7 +341,10 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
       recordChunksRef.current = [];
 
       const mimeType = pickAudioMimeType();
-      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const rec = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
       recorderRef.current = rec;
 
       rec.ondataavailable = (e) => {
@@ -401,29 +423,32 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
       if (files.length === 0) {
         await sendMessage({ text: trimmed });
       } else {
-      const images = files.filter((f) =>
-        (f.type || "").toLowerCase().startsWith("image/")
-      );
-      const others = files.filter(
-        (f) => !(f.type || "").toLowerCase().startsWith("image/")
-      );
+        const images = files.filter((f) =>
+          (f.type || "").toLowerCase().startsWith("image/"),
+        );
+        const others = files.filter(
+          (f) => !(f.type || "").toLowerCase().startsWith("image/"),
+        );
 
-      if (images.length === 0) {
-        // only non-image files: 1 file = 1 message
-        for (let i = 0; i < others.length; i++) {
-          await sendMessage({ text: i === 0 ? trimmed : "", file: others[i] });
+        if (images.length === 0) {
+          // only non-image files: 1 file = 1 message
+          for (let i = 0; i < others.length; i++) {
+            await sendMessage({
+              text: i === 0 ? trimmed : "",
+              file: others[i],
+            });
+          }
+        } else {
+          // images: 1 message (1..5 images)
+          await sendMessage({
+            text: trimmed,
+            files: images.length === 1 ? [images[0]] : images,
+          });
+          // non-image: 1 file = 1 message (text already sent with images)
+          for (const f of others) {
+            await sendMessage({ text: "", file: f });
+          }
         }
-      } else {
-        // images: 1 message (1..5 images)
-        await sendMessage({
-          text: trimmed,
-          files: images.length === 1 ? [images[0]] : images,
-        });
-        // non-image: 1 file = 1 message (text already sent with images)
-        for (const f of others) {
-          await sendMessage({ text: "", file: f });
-        }
-      }
       }
 
       setText("");
@@ -439,12 +464,14 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
   };
 
   return (
-    <div className="discord-topbar mobile-chat-input-wrap sticky bottom-0 w-full px-4 py-3">
+    <div className="mobile-chat-input-wrap sticky bottom-0 w-full bg-(--discord-chat) px-4 py-3">
       {editingMessage && (
         <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/10 px-3 py-2">
           <div className="truncate text-sm text-base-content">
             Đang chỉnh sửa:{" "}
-            <span className="text-base-content/50">{editingMessage.text || ""}</span>
+            <span className="text-base-content/50">
+              {editingMessage.text || ""}
+            </span>
           </div>
           <button
             type="button"
@@ -506,7 +533,9 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
               {p.kind === "audio" && (
                 <div className="flex w-20 flex-col items-center justify-center gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
                   <Mic className="w-6 h-6 text-base-content/50" />
-                  <span className="text-[10px] text-base-content/50">AUDIO</span>
+                  <span className="text-[10px] text-base-content/50">
+                    AUDIO
+                  </span>
                   <span
                     className="max-w-[72px] truncate text-[10px] text-base-content/80"
                     title={p.name}
@@ -517,7 +546,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
               )}
               <button
                 onClick={() => removeFileAt(idx)}
-                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--discord-danger)] text-white"
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-(--discord-danger) text-white"
                 type="button"
               >
                 <X className="size-3" />
@@ -527,28 +556,29 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
         </div>
       )}
 
-      <form onSubmit={handleSendMessage} className="discord-composer flex items-center gap-2 px-3 py-3">
+      <form
+        onSubmit={handleSendMessage}
+        className="flex items-center gap-2 rounded-lg bg-(--discord-panel-strong) px-3 py-2"
+      >
         <div className="flex flex-1 items-center gap-2">
           <button
             type="button"
-            className={`discord-icon-button flex size-10 items-center justify-center rounded-full ${
-              previews.length > 0 ? "is-active" : ""
-            }`}
+            className="flex size-8 items-center justify-center rounded-md text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
             onClick={() => fileInputRef.current?.click()}
             disabled={!!editingMessage}
             title="Attach files"
           >
-            <Paperclip size={18} />
+            <Plus size={18} />
           </button>
           <input
             type="text"
-            className="discord-input-reset h-11 w-full text-sm sm:text-[15px]"
+            className="discord-input-reset h-10 w-full text-sm text-(--discord-text) sm:text-[15px]"
             placeholder={
               editingMessage
                 ? "Edit message..."
                 : aiMode
                   ? "Chat với RushCordAI... (gõ @RushCord <câu hỏi>)"
-                  : "Type a message..."
+                  : `Nhắn #${selectedConversation?.title || "channel"}`
             }
             value={text}
             onChange={(e) => {
@@ -561,7 +591,8 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
               setAiMode(isRushCord);
 
               // Debounce + throttle to avoid spamming socket on each keystroke.
-              if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
+              if (typingDebounceRef.current)
+                clearTimeout(typingDebounceRef.current);
 
               if (editingMessage) return;
               if (isRushCord) return;
@@ -590,34 +621,36 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
             ref={fileInputRef}
             onChange={handleFileChange}
           />
-
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             type="button"
-            className={`discord-icon-button flex size-10 items-center justify-center rounded-full ${
-              isRecording ? "bg-red-500/15 text-red-300" : ""
-            }`}
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={!!editingMessage}
-            title={isRecording ? "Dừng ghi âm & gửi" : "Ghi âm"}
+            className="flex size-8 items-center justify-center rounded-md text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
+            title="Gift"
           >
-            {isRecording ? <Square size={20} /> : <Mic size={20} />}
+            <Gift size={16} />
           </button>
-          {isRecording && (
-            <span className="hidden text-xs tabular-nums text-red-300 sm:inline">
-              REC {Math.floor(recordMs / 1000)}s
-            </span>
-          )}
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs font-semibold text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
+          >
+            GIF
+          </button>
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs font-semibold text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
+          >
+            Sticker
+          </button>
         </div>
         <div className="relative">
           <button
             type="button"
-            className="discord-icon-button flex size-10 items-center justify-center rounded-full"
+            className="flex size-8 items-center justify-center rounded-md text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
             onClick={() => setShowEmoji((prev) => !prev)}
             title="Emoji"
           >
-            <Smile size={20} />
+            <Smile size={16} />
           </button>
 
           {showEmoji && (
@@ -632,11 +665,18 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
           )}
         </div>
         <button
+          type="button"
+          className="flex size-8 items-center justify-center rounded-md text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
+          title="Apps"
+        >
+          <Grid3x3 size={16} />
+        </button>
+        <button
           type="submit"
-          className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-content transition-transform duration-150 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex size-8 items-center justify-center rounded-md bg-(--discord-accent) text-white disabled:cursor-not-allowed disabled:opacity-50"
           disabled={isAiBusy || isRecording || (!text.trim() && files.length === 0)}
         >
-          <Send size={18} />
+          <Send size={16} />
         </button>
       </form>
     </div>
