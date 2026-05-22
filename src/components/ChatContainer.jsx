@@ -1,5 +1,6 @@
 import { useChatStore } from "../store/useChatStore";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
@@ -9,20 +10,69 @@ import { formatMessageTime } from "../lib/utils";
 import VideoCall from "../components/VideoCall";
 import GroupVideoCall from "../components/GroupVideoCall";
 import { getFileIcon } from "../lib/utils";
-import {
-  Smile,
-  MoreHorizontal,
-  Play,
-  Pause,
-  Mic,
-} from "lucide-react";
+import { Smile, MoreHorizontal, Play, Pause, Mic, Volume2 } from "lucide-react";
 import EmojiPicker from "emoji-picker-react";
+import MediaLightboxModal from "./MediaLightboxModal";
+import toast from "react-hot-toast";
+import {
+  downloadMessageAttachments,
+  getMessageDownloadables,
+  hasMessageAttachments,
+} from "../lib/downloadAttachment";
+
+const REACTION_PICKER_W = 320;
+const REACTION_PICKER_H = 400;
+const REACTION_PICKER_GAP = 8;
+
+const computeReactionPickerPosition = (anchorRect) => {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const pad = 8;
+
+  let top = anchorRect.top - REACTION_PICKER_H - REACTION_PICKER_GAP;
+  if (top < pad) {
+    top = anchorRect.bottom + REACTION_PICKER_GAP;
+    if (top + REACTION_PICKER_H > vh - pad) {
+      top = Math.max(pad, vh - REACTION_PICKER_H - pad);
+    }
+  }
+
+  let left = anchorRect.left + anchorRect.width / 2 - REACTION_PICKER_W / 2;
+  left = Math.max(pad, Math.min(left, vw - REACTION_PICKER_W - pad));
+
+  return { top, left };
+};
 
 const formatSeconds = (sec) => {
   const s = Number.isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, "0")}`;
+};
+
+const dmRoomName = (userA, userB) => {
+  const [x, y] = [String(userA || ""), String(userB || "")].sort();
+  return `DM#${x}#${y}`;
+};
+
+const isActiveCallForConversation = (conversation, roomName, peerId, authUserId) => {
+  const room = String(roomName || "");
+  if (!conversation || !room) return false;
+
+  if (conversation.type === "DM") {
+    const convId = String(conversation.conversationId || "");
+    const peer = String(peerId || conversation.otherUserId || "");
+    if (convId === room) return true;
+    if (authUserId && peer) return dmRoomName(authUserId, peer) === room;
+    return false;
+  }
+
+  if (conversation.type === "GROUP") {
+    const cid = String(conversation.conversationId || "");
+    return room === cid || room.startsWith(`${cid}#`);
+  }
+
+  return false;
 };
 
 const AudioMessage = ({ url, fileName }) => {
@@ -37,8 +87,10 @@ const AudioMessage = ({ url, fileName }) => {
     const el = audioRef.current;
     if (!el) return;
 
-    const onLoaded = () => setDuration(Number.isFinite(el.duration) ? el.duration : 0);
-    const onTime = () => setCurrent(Number.isFinite(el.currentTime) ? el.currentTime : 0);
+    const onLoaded = () =>
+      setDuration(Number.isFinite(el.duration) ? el.duration : 0);
+    const onTime = () =>
+      setCurrent(Number.isFinite(el.currentTime) ? el.currentTime : 0);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => setIsPlaying(false);
@@ -72,7 +124,7 @@ const AudioMessage = ({ url, fileName }) => {
   const pct = duration > 0 ? Math.min(1, Math.max(0, current / duration)) : 0;
 
   return (
-    <div className="w-[280px] max-w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2">
+    <div className="message-embed w-[280px] max-w-full rounded-xl px-3 py-2">
       <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
 
       <div className="flex items-center gap-3">
@@ -83,24 +135,34 @@ const AudioMessage = ({ url, fileName }) => {
           aria-label={isPlaying ? "Pause audio" : "Play audio"}
           title={isPlaying ? "Tạm dừng" : "Phát"}
         >
-          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
+          {isPlaying ? (
+            <Pause className="w-5 h-5" />
+          ) : (
+            <Play className="w-5 h-5 ml-0.5" />
+          )}
         </button>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Mic className="w-4 h-4 text-base-content/60 shrink-0" />
-            <div className="truncate text-sm text-base-content" title={safeName}>
+            <Mic className="w-4 h-4 shrink-0 opacity-60" />
+            <div
+              className="truncate text-sm"
+              title={safeName}
+            >
               {safeName}
             </div>
-            <div className="ml-auto text-xs text-base-content/60 tabular-nums shrink-0">
+            <div className="message-meta-received ml-auto shrink-0 text-xs tabular-nums">
               {formatSeconds(current)} / {formatSeconds(duration)}
             </div>
           </div>
 
-          <div className="mt-2 h-2 w-full rounded-full bg-base-300 overflow-hidden">
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[var(--message-embed-border)]">
             <div
-              className="h-full rounded-full bg-emerald-500/70"
-              style={{ width: `${pct * 100}%` }}
+              className="h-full rounded-full"
+              style={{
+                width: `${pct * 100}%`,
+                backgroundColor: "var(--message-audio-progress)",
+              }}
             />
           </div>
         </div>
@@ -115,17 +177,30 @@ const ChatContainer = () => {
     users,
     conversations,
     getMessages,
+    getChannels,
     isMessagesLoading,
     selectedConversation,
+    selectedChannel,
+    channels,
+    voiceSession,
+    voiceEndSignal,
+    groupPanelView,
+    joinVoiceChannel,
+    leaveVoiceChannel,
+    setSelectedChannel,
     setSelectedConversation,
-    isTyping,
-    typingFromUserId,
     subscribeToMessages,
     unsubscribeFromMessages,
+    isTyping,
+    typingFromUserId,
     recallMessage,
     recallMessageMe,
     forwardMessage,
     reactToMessage,
+    setDmCallActive,
+    highlightMessageId,
+    pendingScrollMessageId,
+    clearMessageSearchHighlight,
   } = useChatStore();
 
   const { authUser, incomingCall, clearIncomingCall, socket } = useAuthStore();
@@ -135,6 +210,53 @@ const ChatContainer = () => {
   const [callPeerId, setCallPeerId] = useState(null);
   const [callRoomName, setCallRoomName] = useState(null);
   const [endSignal, setEndSignal] = useState(0);
+  const callPeerIdRef = useRef(null);
+  const callRoomNameRef = useRef(null);
+  const isCallingRef = useRef(false);
+
+  const showVoicePanel =
+    selectedConversation?.type === "GROUP" &&
+    groupPanelView === "voice" &&
+    Boolean(voiceSession) &&
+    String(voiceSession.conversationId) ===
+      String(selectedConversation?.conversationId);
+
+  const activeVoiceChannel = showVoicePanel
+    ? channels.find(
+        (c) => String(c.channelId) === String(voiceSession.voiceChannelId),
+      )
+    : null;
+
+  const groupVideoCallEl = voiceSession ? (
+    <GroupVideoCall
+      key={voiceSession.roomName}
+      roomName={voiceSession.roomName}
+      autoStart
+      variant="embedded"
+      forceEndSignal={voiceEndSignal}
+      notifyHangupGroup={false}
+      getDisplayName={(identity) => {
+        const id = String(identity || "");
+        const u = users.find((x) => String(x._id) === id);
+        return u?.fullName || id;
+      }}
+      getUserProfile={(identity) => {
+        const id = String(identity || "");
+        const u = users.find((x) => String(x._id) === id);
+        if (u) return { fullName: u.fullName, profilePic: u.profilePic };
+        if (String(id) === String(authUser?._id)) {
+          return {
+            fullName: authUser?.fullName,
+            profilePic: authUser?.profilePic,
+          };
+        }
+        return { fullName: id, profilePic: "/avatar.png" };
+      }}
+      onEnd={() => {
+        leaveVoiceChannel();
+      }}
+    />
+  ) : null;
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [messageMenuId, setMessageMenuId] = useState(null);
@@ -142,6 +264,60 @@ const ChatContainer = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [historyMessage, setHistoryMessage] = useState(null);
   const [reactingForMessageId, setReactingForMessageId] = useState(null);
+  const [reactionPickerStyle, setReactionPickerStyle] = useState(null);
+  const reactButtonRef = useRef(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+
+  const updateReactionPickerPosition = useCallback(() => {
+    const el = reactButtonRef.current;
+    if (!el) return;
+    setReactionPickerStyle(computeReactionPickerPosition(el.getBoundingClientRect()));
+  }, []);
+
+  const toggleReactionPicker = (messageId, buttonEl) => {
+    if (reactingForMessageId === messageId) {
+      setReactingForMessageId(null);
+      reactButtonRef.current = null;
+      setReactionPickerStyle(null);
+      return;
+    }
+    reactButtonRef.current = buttonEl;
+    setReactingForMessageId(messageId);
+    setReactionPickerStyle(
+      computeReactionPickerPosition(buttonEl.getBoundingClientRect()),
+    );
+  };
+
+  const openMediaPreview = (type, url, fileName) => {
+    if (!url) return;
+    setMediaPreview({ type, url, fileName: fileName || undefined });
+  };
+
+  const handleDownloadMessage = async (message) => {
+    setMessageMenuId(null);
+    const items = getMessageDownloadables(message);
+    if (items.length === 0) {
+      toast.error("Tin nhắn không có file đính kèm");
+      return;
+    }
+
+    const toastId = toast.loading(
+      items.length > 1
+        ? `Đang tải ${items.length} file...`
+        : "Đang tải xuống...",
+    );
+
+    try {
+      const count = await downloadMessageAttachments(message);
+      toast.success(
+        count > 1 ? `Đã tải ${count} file` : "Đã tải xuống",
+        { id: toastId },
+      );
+    } catch {
+      toast.error("Không tải được file. Vui lòng thử lại.", { id: toastId });
+    }
+  };
+
   const getFileName = (url) => {
     try {
       return url.split("/").pop().split("?")[0];
@@ -178,10 +354,23 @@ const ChatContainer = () => {
     const close = (e) => {
       if (e.target?.closest?.("[data-react-picker]")) return;
       setReactingForMessageId(null);
+      reactButtonRef.current = null;
+      setReactionPickerStyle(null);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [reactingForMessageId]);
+
+  useEffect(() => {
+    if (!reactingForMessageId) return;
+    updateReactionPickerPosition();
+    window.addEventListener("resize", updateReactionPickerPosition);
+    window.addEventListener("scroll", updateReactionPickerPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateReactionPickerPosition);
+      window.removeEventListener("scroll", updateReactionPickerPosition, true);
+    };
+  }, [reactingForMessageId, updateReactionPickerPosition]);
 
   const renderReactions = (message) => {
     const counts = message?.reactionCounts;
@@ -205,12 +394,12 @@ const ChatContainer = () => {
           <button
             key={emoji}
             type="button"
-            className="shrink-0 inline-flex items-center whitespace-nowrap max-w-full px-2 py-1 rounded-full bg-base-200 border border-base-300 text-xs hover:bg-base-300"
+            className="message-reaction shrink-0"
             onClick={() => reactToMessage(message._id, emoji)}
             title="Bấm để thả/bỏ react"
           >
             <span className="mr-1">{emoji}</span>
-            <span className="opacity-70">{count}</span>
+            <span className="message-reaction-count">{count}</span>
           </button>
         ))}
       </div>
@@ -218,10 +407,42 @@ const ChatContainer = () => {
   };
 
   // =========================
+  // GROUP: load channel list
+  // =========================
+  useEffect(() => {
+    const conv = selectedConversation;
+    if (!conv?.conversationId) return;
+
+    let cancelled = false;
+    (async () => {
+      await getChannels(conv.conversationId);
+      if (cancelled) return;
+      if (conv.type === "GROUP") {
+        const { channels: chs, selectedChannel: cur } = useChatStore.getState();
+        const stillValid = cur && chs.some((c) => String(c.channelId) === String(cur.channelId));
+        if (!stillValid) {
+          const firstChat = chs.find((c) => c.channelType === "CHAT");
+          if (firstChat) setSelectedChannel(firstChat);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedConversation?.conversationId, selectedConversation?.type, getChannels, setSelectedChannel]);
+
+  // =========================
   // LOAD MESSAGES
   // =========================
   useEffect(() => {
     if (!selectedConversation?.conversationId) return;
+    if (
+      selectedConversation.type === "GROUP" &&
+      !selectedChannel?.channelId
+    ) {
+      return;
+    }
 
     getMessages(selectedConversation.conversationId);
     subscribeToMessages();
@@ -233,12 +454,113 @@ const ChatContainer = () => {
     return () => {
       unsubscribeFromMessages();
     };
-  }, [selectedConversation?.conversationId]);
+  }, [
+    selectedConversation?.conversationId,
+    selectedConversation?.type,
+    selectedChannel?.channelId,
+    getMessages,
+    subscribeToMessages,
+    unsubscribeFromMessages,
+  ]);
 
   // =========================
-  // RESET CALL WHEN CHANGE USER
+  // SOCKET: join text channel room (GROUP)
   // =========================
   useEffect(() => {
+    const socket = useAuthStore.getState().socket;
+    const cid = selectedConversation?.conversationId;
+    if (!socket || typeof cid !== "string" || !cid.startsWith("GROUP#")) return;
+    const chid = selectedChannel?.channelId;
+    const chType = selectedChannel?.channelType;
+    if (!chid || chType === "VOICE") return;
+
+    socket.emit("joinConversationChannel", {
+      conversationId: cid,
+      channelId: chid,
+    });
+    return () => {
+      socket.emit("leaveConversationChannel", {
+        conversationId: cid,
+        channelId: chid,
+      });
+    };
+  }, [
+    selectedConversation?.conversationId,
+    selectedChannel?.channelId,
+    selectedChannel?.channelType,
+  ]);
+
+  useEffect(() => {
+    callPeerIdRef.current = callPeerId;
+  }, [callPeerId]);
+
+  useEffect(() => {
+    callRoomNameRef.current = callRoomName;
+  }, [callRoomName]);
+
+  useEffect(() => {
+    isCallingRef.current = isCalling;
+  }, [isCalling]);
+
+  useEffect(() => {
+    setDmCallActive(Boolean(isCalling && selectedConversation?.type === "DM"));
+  }, [isCalling, selectedConversation?.type, setDmCallActive]);
+
+  // =========================
+  // SOCKET: 1-1 call lifecycle
+  // =========================
+  useEffect(() => {
+    if (!socket) return () => {};
+
+    const onCallRejected = ({ from, roomName: rn }) => {
+      if (!isCallingRef.current) return;
+      const peer = callPeerIdRef.current;
+      const room = callRoomNameRef.current;
+      if (peer && String(from) !== String(peer)) return;
+      if (room && rn && rn !== room) return;
+      setIsCalling(false);
+      setCallPeerId(null);
+      setCallRoomName(null);
+      setEndSignal(0);
+    };
+
+    socket.on("callRejected", onCallRejected);
+    return () => socket.off("callRejected", onCallRejected);
+  }, [socket]);
+
+  // =========================
+  // RESET CALL WHEN CHANGE CONVERSATION (not when accepting into call DM)
+  // =========================
+  useEffect(() => {
+    const conv = selectedConversation;
+    const room = callRoomNameRef.current;
+    const peer = callPeerIdRef.current;
+
+    if (
+      isCallingRef.current &&
+      isActiveCallForConversation(conv, room, peer, authUser?._id)
+    ) {
+      return;
+    }
+
+    if (
+      isCallingRef.current &&
+      callPeerIdRef.current &&
+      callRoomNameRef.current
+    ) {
+      const s = useAuthStore.getState().socket;
+      if (s) {
+        s.emit("hangup", {
+          to: callPeerIdRef.current,
+          roomName: callRoomNameRef.current,
+        });
+      }
+    }
+
+    if (!isCallingRef.current) {
+      if (!callPeerId && !callRoomName) return;
+    }
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsCalling(false);
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -247,25 +569,63 @@ const ChatContainer = () => {
     setCallRoomName(null);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setEndSignal(0);
-  }, [selectedConversation?.conversationId]);
+  }, [
+    selectedConversation?.conversationId,
+    selectedConversation?.type,
+    selectedConversation?.otherUserId,
+    authUser?._id,
+    callPeerId,
+    callRoomName,
+  ]);
 
   // =========================
   // AUTO SCROLL
   // =========================
   useEffect(() => {
+    if (pendingScrollMessageId) return;
+
     const timeout = setTimeout(() => {
       messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 50);
 
     return () => clearTimeout(timeout);
-  }, [messages]);
+  }, [messages, pendingScrollMessageId]);
+
+  // =========================
+  // SCROLL TO SEARCH RESULT
+  // =========================
+  useEffect(() => {
+    const id = pendingScrollMessageId;
+    if (!id || !messages.length) return;
+
+    const timeout = setTimeout(() => {
+      const el = document.querySelector(`[data-message-id="${id}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      useChatStore.setState({ pendingScrollMessageId: null });
+    }, 80);
+
+    return () => clearTimeout(timeout);
+  }, [messages, pendingScrollMessageId]);
 
   useEffect(() => {
-    document.body.classList.toggle("mobile-video-call-active", isCalling);
+    if (!highlightMessageId) return;
+    const timeout = setTimeout(() => {
+      clearMessageSearchHighlight();
+    }, 2500);
+    return () => clearTimeout(timeout);
+  }, [highlightMessageId, clearMessageSearchHighlight]);
+
+  useEffect(() => {
+    document.body.classList.toggle(
+      "mobile-video-call-active",
+      isCalling || Boolean(showVoicePanel),
+    );
     return () => {
       document.body.classList.remove("mobile-video-call-active");
     };
-  }, [isCalling]);
+  }, [isCalling, showVoicePanel]);
 
   // =========================
   // LOADING
@@ -275,26 +635,10 @@ const ChatContainer = () => {
       <div className="flex-1 flex flex-col overflow-auto">
         <ChatHeader
           onCall={() => {
-            if (!selectedConversation) return;
-            if (selectedConversation.type === "GROUP") {
-              const roomName = String(selectedConversation.conversationId || "").trim();
-              if (!roomName) return;
-              setCallPeerId(null);
-              setCallRoomName(roomName);
-              setIsCalling(true);
-              if (socket) socket.emit("callInviteGroup", { conversationId: roomName });
-              return;
-            }
-
-            if (selectedConversation.type !== "DM") return;
+            if (!selectedConversation || selectedConversation.type !== "DM") return;
             const otherUserId = selectedConversation.otherUserId;
             if (!otherUserId) return;
-            const roomName = (() => {
-              const a = String(authUser?._id || "");
-              const b = String(otherUserId || "");
-              const [x, y] = [a, b].sort();
-              return `DM#${x}#${y}`;
-            })();
+            const roomName = dmRoomName(authUser?._id, otherUserId);
             setCallPeerId(otherUserId);
             setCallRoomName(roomName);
             setIsCalling(true);
@@ -309,56 +653,25 @@ const ChatContainer = () => {
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden bg-[var(--discord-chat)]">
-      <ChatHeader
-        onCall={() => {
-          if (!selectedConversation) return;
-          if (selectedConversation.type === "GROUP") {
-            const roomName = String(selectedConversation.conversationId || "").trim();
-            if (!roomName) return;
-            setCallPeerId(null);
-            setCallRoomName(roomName);
-            setIsCalling(true);
-            if (socket) socket.emit("callInviteGroup", { conversationId: roomName });
-            return;
-          }
-
-          if (selectedConversation.type !== "DM") return;
-          const otherUserId = selectedConversation.otherUserId;
-          if (!otherUserId) return;
-          const roomName = (() => {
-            const a = String(authUser?._id || "");
-            const b = String(otherUserId || "");
-            const [x, y] = [a, b].sort();
-            return `DM#${x}#${y}`;
-          })();
-          setCallPeerId(otherUserId);
-          setCallRoomName(roomName);
-          setIsCalling(true);
-          if (socket) socket.emit("callInvite", { to: otherUserId, roomName });
-        }}
-        callDisabled={!selectedConversation}
-      />
-
-      {/* VIDEO CALL */}
-      {isCalling && selectedConversation && (
+    <div className="relative flex flex-1 flex-col overflow-hidden bg-(--discord-chat)">
+      {/* DM VIDEO CALL */}
+      {isCalling && selectedConversation?.type === "DM" && (
         <div className="discord-modal-scrim fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="discord-modal-card w-full max-w-4xl overflow-hidden">
             <div className="discord-topbar flex items-center justify-between gap-3 px-4 py-3">
-              <h1 className="text-base-content text-base sm:text-lg font-semibold truncate">
-                {selectedConversation?.type === "GROUP" ? (
-                  <>
-                    Group call:{" "}
-                    <span className="text-blue-400">
-                      {selectedConversation?.title || selectedConversation?.conversationId}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    Video Call with{" "}
-                    <span className="text-blue-400">{selectedConversation?.otherUserId}</span>
-                  </>
-                )}
+              <h1 className="text-base-content truncate text-base font-semibold sm:text-lg">
+                Video Call with{" "}
+                <span className="text-blue-400">
+                  {users.find(
+                    (u) =>
+                      String(u._id) ===
+                      String(
+                        callPeerId || selectedConversation?.otherUserId,
+                      ),
+                  )?.fullName ||
+                    callPeerId ||
+                    selectedConversation?.otherUserId}
+                </span>
               </h1>
               <button
                 type="button"
@@ -372,40 +685,19 @@ const ChatContainer = () => {
             </div>
 
             <div className="p-3 sm:p-4">
-              <div className="w-full">
-                {selectedConversation?.type === "GROUP" ? (
-                  <GroupVideoCall
-                    roomName={callRoomName}
-                    autoStart={true}
-                    forceEndSignal={endSignal}
-                    getDisplayName={(identity) => {
-                      const id = String(identity || "");
-                      const u = users.find((x) => String(x._id) === id);
-                      return u?.fullName || id;
-                    }}
-                    onEnd={() => {
-                      setIsCalling(false);
-                      setCallRoomName(null);
-                      setCallPeerId(null);
-                      setEndSignal(0);
-                    }}
-                  />
-                ) : (
-                  <VideoCall
-                    myId={authUser._id}
-                    remoteId={callPeerId || selectedConversation.otherUserId}
-                    roomName={callRoomName}
-                    autoStart={true}
-                    forceEndSignal={endSignal}
-                    onEnd={() => {
-                      setIsCalling(false);
-                      setCallRoomName(null);
-                      setCallPeerId(null);
-                      setEndSignal(0);
-                    }}
-                  />
-                )}
-              </div>
+              <VideoCall
+                myId={authUser._id}
+                remoteId={callPeerId || selectedConversation.otherUserId}
+                roomName={callRoomName}
+                autoStart
+                forceEndSignal={endSignal}
+                onEnd={() => {
+                  setIsCalling(false);
+                  setCallRoomName(null);
+                  setCallPeerId(null);
+                  setEndSignal(0);
+                }}
+              />
             </div>
           </div>
         </div>
@@ -420,19 +712,25 @@ const ChatContainer = () => {
                 const kind = String(incomingCall?.kind || "").toUpperCase();
                 const isGroup = kind === "GROUP";
                 if (isGroup) {
-                  const cid = String(incomingCall?.conversationId || incomingCall?.roomName || "");
-                  const conv = conversations.find((c) => String(c.conversationId) === cid);
+                  const cid = String(
+                    incomingCall?.conversationId ||
+                      incomingCall?.roomName ||
+                      "",
+                  );
+                  const conv = conversations.find(
+                    (c) => String(c.conversationId) === cid,
+                  );
                   const name = conv?.title || cid || "Group";
                   return (
                     <>
-                      📞 Incoming group call:{" "}
+                      🔊 Vào kênh thoại:{" "}
                       <span className="text-blue-300">{name}</span>
                     </>
                   );
                 }
                 const fromName =
-                  users.find((u) => String(u._id) === String(incomingCall.from))?.fullName ||
-                  incomingCall.from;
+                  users.find((u) => String(u._id) === String(incomingCall.from))
+                    ?.fullName || incomingCall.from;
                 return (
                   <>
                     📞 Incoming call from{" "}
@@ -449,46 +747,59 @@ const ChatContainer = () => {
                   const isGroup = kind === "GROUP";
 
                   if (isGroup) {
-                    const cid = String(incomingCall?.conversationId || incomingCall?.roomName || "").trim();
-                    if (!cid) return;
-                    const conv =
-                      conversations.find((c) => String(c.conversationId) === cid) || null;
+                    const rn = String(incomingCall?.roomName || "");
+                    const cid = String(
+                      incomingCall?.conversationId ||
+                        (rn.includes("#VOICE#") ? rn.split("#VOICE#")[0] : rn),
+                    ).trim();
+                    if (!cid.startsWith("GROUP#")) return;
+                    let vid = String(incomingCall?.voiceChannelId || "").trim();
+                    if (!vid && rn.includes("#VOICE#")) {
+                      vid = rn.split("#VOICE#")[1] || "";
+                    }
+                    if (!vid) return;
 
-                    setCallPeerId(null);
-                    setCallRoomName(cid);
+                    const conv =
+                      conversations.find(
+                        (c) => String(c.conversationId) === cid,
+                      ) || null;
+
                     setSelectedConversation(
-                      conv || { conversationId: cid, type: "GROUP", title: "", avatar: "" },
+                      conv || {
+                        conversationId: cid,
+                        type: "GROUP",
+                        title: "",
+                        avatar: "",
+                      },
                     );
+                    joinVoiceChannel(cid, vid);
                     clearIncomingCall();
-                    setIsCalling(true);
                     return;
                   }
 
-                  const caller =
-                    users.find((u) => String(u._id) === String(incomingCall.from)) || {
-                      _id: incomingCall.from,
-                      fullName: incomingCall.from,
-                    };
+                  const caller = users.find(
+                    (u) => String(u._id) === String(incomingCall.from),
+                  ) || {
+                    _id: incomingCall.from,
+                    fullName: incomingCall.from,
+                  };
 
-                  // Ensure VideoCall mounts with the correct peer id even if selectedUser updates later.
-                  setCallPeerId(incomingCall.from);
-                  setCallRoomName(incomingCall.roomName || null);
+                  const callerId = incomingCall.from;
+                  const roomName =
+                    incomingCall.roomName ||
+                    dmRoomName(authUser?._id, callerId);
+
+                  setCallPeerId(callerId);
+                  setCallRoomName(roomName);
                   setSelectedConversation({
-                    conversationId:
-                      incomingCall.roomName ||
-                      `DM#${[String(authUser?._id || ""), String(incomingCall.from || "")]
-                        .sort()
-                        .join("#")}`,
+                    conversationId: roomName,
                     type: "DM",
                     otherUserId: caller._id,
                   });
                   clearIncomingCall();
                   setIsCalling(true);
                   if (socket)
-                    socket.emit("callAccept", {
-                      to: incomingCall.from,
-                      roomName: incomingCall.roomName,
-                    });
+                    socket.emit("callAccept", { to: callerId, roomName });
                 }}
                 className="btn btn-success btn-sm rounded-md"
               >
@@ -515,381 +826,570 @@ const ChatContainer = () => {
         </div>
       )}
 
-      {/* MESSAGES */}
-      <div className="discord-scroll mobile-chat-scroll flex-1 overflow-y-auto px-5 py-6 space-y-4">
-        {selectedConversation?.type === "DM" && messages.length === 0 && (
-          <div className="flex justify-center pt-6">
-            <div className="max-w-[95%] rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-sm text-base-content/80 sm:max-w-[520px]">
-              {(() => {
-                const otherId = selectedConversation?.otherUserId;
-                const otherName =
-                  users.find((u) => String(u._id) === String(otherId))?.fullName ||
-                  "người ấy";
-                return (
-                  <>
-                    Bạn và <span className="font-medium">{otherName}</span> đã trở thành bạn bè.
-                    {" "}
-                    Hãy gửi lời chào để bắt đầu cuộc trò chuyện nhé!
-                  </>
-                );
-              })()}
+      {voiceSession ? (
+        <div
+          className={
+            showVoicePanel
+              ? "flex min-h-0 min-w-0 flex-1 flex-col bg-(--discord-chat)"
+              : "hidden"
+          }
+          aria-hidden={!showVoicePanel}
+        >
+          {showVoicePanel ? (
+            <div className="discord-topbar flex shrink-0 items-center gap-2 border-b border-(--discord-border) px-4 py-3">
+              <Volume2 className="size-5 shrink-0 text-(--discord-text-muted)" />
+              <h1 className="min-w-0 truncate text-base font-semibold text-(--discord-text)">
+                <span className="text-(--discord-text-muted)">Kênh thoại · </span>
+                {activeVoiceChannel?.name || voiceSession.voiceChannelId}
+              </h1>
+            </div>
+          ) : null}
+          <div
+            className={
+              showVoicePanel
+                ? "discord-scroll flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-4 sm:p-6"
+                : ""
+            }
+          >
+            <div
+              className={
+                showVoicePanel ? "mx-auto flex w-full max-w-6xl flex-1 flex-col" : ""
+              }
+            >
+              {groupVideoCallEl}
             </div>
           </div>
-        )}
+        </div>
+      ) : null}
 
-        {messages.map((message, index) => (
-          message?.isSystem ? (
-            <div
-              key={message._id}
-              ref={index === messages.length - 1 ? messageEndRef : null}
-              className="flex justify-center"
-            >
-              <div className="max-w-[90%] rounded-full border border-white/10 bg-white/5 px-3 py-1 text-center text-xs text-base-content/70">
-                {message.text || ""}
-              </div>
-            </div>
-          ) : (
-          <div
-            key={message._id}
-            className={`chat message-row group px-1 ${
-              message.senderId === authUser._id ? "chat-end" : "chat-start"
-            }`}
-            ref={index === messages.length - 1 ? messageEndRef : null}
-          >
-            {/*
-              Note: use daisyUI chat bubble variants so bubble colors follow `data-theme`.
-            */}
-            {/* AVATAR */}
-            <div className="chat-image avatar">
-              <div className="size-10 rounded-full border border-white/10">
-                <img
-                  src={
-                    message.senderId === authUser._id
-                      ? authUser.profilePic || "/avatar.png"
-                      : String(message.senderId) === "RushCordAI"
-                        ? "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png"
-                      : (() => {
-                          const sender = users.find(
-                            (u) => String(u._id) === String(message.senderId),
-                          );
-                          return sender?.profilePic || "/avatar.png";
-                        })()
-                  }
-                  alt="profile"
-                />
-              </div>
-            </div>
+      {!showVoicePanel ? (
+        <>
+          <ChatHeader
+            onCall={() => {
+              if (!selectedConversation || selectedConversation.type !== "DM") return;
+              const otherUserId = selectedConversation.otherUserId;
+              if (!otherUserId) return;
+              const roomName = dmRoomName(authUser?._id, otherUserId);
+              setCallPeerId(otherUserId);
+              setCallRoomName(roomName);
+              setIsCalling(true);
+              if (socket) socket.emit("callInvite", { to: otherUserId, roomName });
+            }}
+            callDisabled={!selectedConversation}
+          />
 
-            {/* HEADER: name (group) + time */}
-            <div className="chat-header mb-1">
-              {selectedConversation?.type === "GROUP" &&
-                message.senderId !== authUser._id && (
-                  <span className="text-xs font-medium mr-2">
-                    {(() => {
-                      const sender = users.find(
-                        (u) => String(u._id) === String(message.senderId),
-                      );
-                      return sender?.fullName || message.senderId;
-                    })()}
-                  </span>
-                )}
-              <time className="ml-1 text-xs opacity-50">
-                {formatMessageTime(message.createdAt)}
-              </time>
-            </div>
-
-            {/* MESSAGE */}
-            <div
-              className={[
-                "chat-bubble flex flex-col gap-2 relative max-w-[75%] break-words",
-                "rounded-2xl border border-white/10 shadow-sm",
-                message.senderId === authUser._id
-                  ? "chat-bubble-primary bg-primary text-primary-content"
-                  : "bg-[var(--discord-panel)] text-base-content",
-              ].join(" ")}
-            >
-              {!message.isRecalled &&
-                !message.isDeletedForMe &&
-                message.isEdited &&
-                Array.isArray(message.editHistory) && (
-                  <button
-                    type="button"
-                    className="self-start text-[11px] opacity-70 hover:opacity-100 underline underline-offset-2 mb-1"
-                    onClick={() => setHistoryMessage(message)}
-                    title="Xem lịch sử chỉnh sửa"
-                  >
-                    Đã chỉnh sửa
-                  </button>
-                )}
-              {message.isRecalled ? (
-                <p className="italic text-base-content/60">
-                  {message.senderId === authUser._id
-                    ? "Bạn đã thu hồi tin nhắn với mọi người."
-                    : "Tin nhắn đã bị thu hồi"}
-                </p>
-              ) : message.isDeletedForMe ? (
-                <p className="italic text-base-content/60">
-                  Bạn đã thu hồi tin nhắn với bản thân.
-                </p>
-              ) : (
-                <>
-                  {/* 🖼️ IMAGE */}
-                  {message.image && (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-(--discord-chat)">
+          {/* MESSAGES */}
+          <div className="discord-scroll mobile-chat-scroll flex-1 overflow-y-auto bg-(--discord-chat) px-0 py-4">
+            {messages.length === 0 &&
+              selectedConversation?.type === "DM" &&
+              (() => {
+                const otherId = selectedConversation?.otherUserId;
+                const otherUser = users.find(
+                  (u) => String(u._id) === String(otherId),
+                );
+                const displayName = otherUser?.fullName || "người này";
+                const avatarUrl = otherUser?.profilePic || "/avatar.png";
+                return (
+                  <div className="px-5 pb-6 pt-2">
                     <img
-                      src={message.image}
-                      alt="attachment"
-                      className="max-w-[220px] rounded-xl cursor-pointer hover:opacity-90"
-                      onClick={() => window.open(message.image, "_blank")}
+                      src={avatarUrl}
+                      alt={displayName}
+                      className="mb-4 size-16 rounded-full border border-(--discord-border) object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = "/avatar.png";
+                      }}
                     />
-                  )}
-
-                  {/* 🖼️ IMAGES (gallery) */}
-                  {Array.isArray(message.images) && message.images.length > 0 && (
-                    <div
-                      className={`grid gap-2 ${
-                        message.images.length === 1
-                          ? "grid-cols-1"
-                          : message.images.length === 2
-                            ? "grid-cols-2"
-                            : "grid-cols-3"
-                      }`}
-                    >
-                      {message.images.slice(0, 5).map((url) => (
-                        <img
-                          key={url}
-                          src={url}
-                          alt="attachment"
-                          className="w-[200px] max-w-full rounded-xl cursor-pointer object-cover hover:opacity-90"
-                          onClick={() => window.open(url, "_blank")}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* 📄 FILE / 🎞️ VIDEO / 🖼️ IMAGE (fallback) */}
-                  {message.file ? (
-                    typeof message.contentType === "string" &&
-                    message.contentType.startsWith("image/") ? (
-                      <img
-                        src={message.file}
-                        alt="attachment"
-                        className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90"
-                        onClick={() => window.open(message.file, "_blank")}
-                      />
-                    ) : typeof message.contentType === "string" &&
-                      message.contentType.startsWith("video/") ? (
-                      <div className="max-w-[320px]">
-                        <video
-                          src={message.file}
-                          controls
-                          playsInline
-                          className="w-full rounded-xl border border-white/10 bg-black"
-                        />
-                      </div>
-                    ) : typeof message.contentType === "string" &&
-                      message.contentType.startsWith("audio/") ? (
-                      <AudioMessage
-                        url={message.file}
-                        fileName={message.fileName || getFileName(message.file)}
-                      />
-                    ) : (
-                      <a
-                        href={message.file}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex max-w-[260px] items-center gap-3 rounded-xl border border-white/10 bg-black/10 px-3 py-2 transition hover:bg-white/5"
-                      >
-                      {/* PREVIEW */}
-                      <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-white/5">
-                        <span className="text-xl">
-                          {getFileIcon(message.file)}
-                        </span>
-                        <span className="text-[10px] text-base-content/60">
-                          {(() => {
-                            const name = (message.fileName || getFileName(message.file) || "").toLowerCase();
-                            if (name.endsWith(".pdf")) return "PDF";
-                            if (name.endsWith(".docx")) return "DOCX";
-                            if (name.endsWith(".doc")) return "DOC";
-                            return "FILE";
-                          })()}
-                        </span>
-                      </div>
-
-                      {/* NAME */}
-                      <div className="min-w-0">
-                        <div
-                          className="truncate max-w-[180px] text-sm text-base-content"
-                          title={message.fileName || getFileName(message.file)}
-                        >
-                          {message.fileName || getFileName(message.file)}
-                        </div>
-                        <div className="text-xs text-base-content/60">Nhấn để mở</div>
-                      </div>
-                      </a>
-                    )
-                  ) : null}
-
-                  {/* TEXT */}
-                  {message.text && (
-                    <p>
-                      {message.text}
+                    <h2 className="text-3xl font-bold text-(--discord-text)">
+                      {displayName}
+                    </h2>
+                    <p className="mt-2 text-sm text-(--discord-text-muted)">
+                      Đây là đầu cuộc trò chuyện của bạn với {displayName}.
                     </p>
-                  )}
-
-                </>
+                    <p className="mt-1 text-sm text-(--discord-text-muted)">
+                      Hãy gửi tin nhắn đầu tiên để bắt đầu cuộc trò chuyện.
+                    </p>
+                  </div>
+                );
+              })()}
+            {messages.length === 0 &&
+              selectedConversation?.type !== "DM" && (
+                <div className="px-5 pb-6 pt-2">
+                  {selectedConversation?.type === "GROUP" &&
+                String(selectedConversation?.avatar || "").trim() ? (
+                  <img
+                    src={selectedConversation.avatar}
+                    alt=""
+                    className="mb-4 size-16 rounded-full border border-(--discord-border) object-cover"
+                    onError={(e) => {
+                      e.currentTarget.src = "/avatar.png";
+                    }}
+                  />
+                ) : (
+                  <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-(--discord-rail) text-(--discord-text)">
+                    <Smile className="size-8" />
+                  </div>
+                )}
+                <h2 className="text-3xl font-bold text-(--discord-text)">
+                  Chào mừng bạn đến với #
+                  {selectedChannel?.name || "kênh-chat"}!
+                </h2>
+                <p className="mt-2 text-sm text-(--discord-text-muted)">
+                  Đây là sự khởi đầu của kênh #
+                  {selectedChannel?.name || "kênh-chat"}.
+                </p>
+              </div>
               )}
 
-              {/* HOVER: react + menu */}
-              {!message.isRecalled && !message.isDeletedForMe && (
+            {messages.map((message, index) =>
+              message?.isSystem ? (
                 <div
-                  className={[
-                    "absolute top-1/2 -translate-y-1/2",
-                    message.senderId === authUser._id ? "-left-15" : "-right-15",
-                    "flex flex-row items-center gap-1",
-                    "opacity-0 pointer-events-none",
-                    "group-hover:opacity-100 group-hover:pointer-events-auto",
-                    "transition-opacity",
-                  ].join(" ")}
+                  key={message._id}
+                  data-message-id={message._id}
+                  ref={index === messages.length - 1 ? messageEndRef : null}
+                  className={`px-5 py-1 text-center text-xs text-(--discord-text-muted) ${
+                    String(highlightMessageId) === String(message._id)
+                      ? "message-search-highlight"
+                      : ""
+                  }`}
                 >
-                  <div className="relative" data-react-picker>
-                    <button
-                      type="button"
-                      title="React"
-                      className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setReactingForMessageId((id) =>
-                          id === message._id ? null : message._id,
-                        );
-                      }}
+                  {message.text || ""}
+                </div>
+              ) : (
+                <div
+                  key={message._id}
+                  data-message-id={message._id}
+                  className={`message-row group relative flex w-full gap-3 px-3 py-1 ${
+                    String(message.senderId) === String(authUser?._id)
+                      ? "justify-end"
+                      : "justify-start"
+                  } ${
+                    String(highlightMessageId) === String(message._id)
+                      ? "message-search-highlight"
+                      : ""
+                  }`}
+                  ref={index === messages.length - 1 ? messageEndRef : null}
+                >
+                  <img
+                    src={
+                      String(message.senderId) === String(authUser?._id)
+                        ? authUser.profilePic || "/avatar.png"
+                        : String(message.senderId) === "RushCordAI"
+                          ? "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png"
+                          : (() => {
+                              const sender = users.find(
+                                (u) =>
+                                  String(u._id) === String(message.senderId),
+                              );
+                              return sender?.profilePic || "/avatar.png";
+                            })()
+                    }
+                    alt="profile"
+                    className={`mt-1 size-10 rounded-full object-cover ${
+                      String(message.senderId) === String(authUser?._id)
+                        ? "order-2"
+                        : "order-1"
+                    }`}
+                  />
+                  <div
+                    className={`relative min-w-0 max-w-[72%] rounded-2xl px-3 py-2 ${
+                      String(message.senderId) === String(authUser?._id)
+                        ? "message-bubble-sent"
+                        : "message-bubble-received"
+                    } ${String(message.senderId) === String(authUser?._id) ? "order-1" : "order-2"}`}
+                  >
+                    <div
+                      className={`mb-0.5 flex items-end gap-2 ${
+                        String(message.senderId) === String(authUser?._id)
+                          ? "justify-end"
+                          : ""
+                      }`}
                     >
-                      <Smile className="w-4 h-4" />
-                    </button>
-
-                    {reactingForMessageId === message._id && (
-                      <div className="absolute z-[70] bottom-full mb-2 right-0">
-                        <EmojiPicker
-                          onEmojiClick={async (emojiData) => {
-                            setReactingForMessageId(null);
-                            await reactToMessage(message._id, emojiData.emoji);
-                          }}
-                          lazyLoadEmojis
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="relative" data-message-menu>
-                    <button
-                      type="button"
-                      title="Thêm"
-                      className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMessageMenuId((id) =>
-                          id === message._id ? null : message._id,
-                        );
-                      }}
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-
-                    {messageMenuId === message._id && (
-                      <ul
-                        className="absolute z-[60] bottom-full mb-1 min-w-[11rem] rounded-lg border border-white/10 bg-[var(--discord-panel)] py-1 shadow-lg"
-                        data-message-menu
-                        style={
-                          message.senderId === authUser._id
-                            ? { right: 0 }
-                            : { left: 0 }
-                        }
+                      <span
+                        className={`text-[14px] font-bold ${
+                          String(message.senderId) === String(authUser?._id)
+                            ? "message-name-sent"
+                            : "message-name-received"
+                        }`}
                       >
-                        <li>
+                        {String(message.senderId) === String(authUser?._id)
+                          ? authUser?.fullName || "You"
+                          : users.find(
+                              (u) => String(u._id) === String(message.senderId),
+                            )?.fullName || message.senderId}
+                      </span>
+                      <time
+                        className={`text-[11px] ${
+                          String(message.senderId) === String(authUser?._id)
+                            ? "message-meta-sent"
+                            : "message-meta-received"
+                        }`}
+                      >
+                        {formatMessageTime(message.createdAt)}
+                      </time>
+                    </div>
+                    <div
+                      className={`text-[16px] leading-snug ${
+                        String(message.senderId) === String(authUser?._id)
+                          ? "message-body-sent text-right"
+                          : "message-body-received"
+                      }`}
+                    >
+                      {!message.isRecalled &&
+                        !message.isDeletedForMe &&
+                        message.isEdited &&
+                        Array.isArray(message.editHistory) && (
                           <button
                             type="button"
-                            disabled={
-                              message.senderId !== authUser._id ||
-                              message.isDeletedForMe ||
-                              message.isRecalled ||
-                              !message.text
-                            }
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                            onClick={() => {
-                              if (message.senderId !== authUser._id) return;
-                              if (message.isDeletedForMe || message.isRecalled) return;
-                              if (!message.text) return;
-                              setEditingMessage(message);
-                              setMessageMenuId(null);
+                            className={`mb-1 text-[11px] underline underline-offset-2 ${
+                              String(message.senderId) === String(authUser?._id)
+                                ? "message-meta-sent hover:opacity-100"
+                                : "message-meta-received hover:text-(--discord-text)"
+                            }`}
+                            onClick={() => setHistoryMessage(message)}
+                            title="Xem lịch sử chỉnh sửa"
+                          >
+                            Đã chỉnh sửa
+                          </button>
+                        )}
+                      {message.isRecalled ? (
+                        <p
+                          className={`italic ${
+                            String(message.senderId) === String(authUser?._id)
+                              ? "message-meta-sent"
+                              : "message-meta-received"
+                          }`}
+                        >
+                          {String(message.senderId) === String(authUser?._id)
+                            ? "Bạn đã thu hồi tin nhắn với mọi người."
+                            : "Tin nhắn đã bị thu hồi"}
+                        </p>
+                      ) : message.isDeletedForMe ? (
+                        <p className="message-meta-sent italic">
+                          Bạn đã thu hồi tin nhắn với bản thân.
+                        </p>
+                      ) : (
+                        <>
+                          {/* 🖼️ IMAGE */}
+                          {message.image && (
+                            <img
+                              src={message.image}
+                              alt="attachment"
+                              className="mt-1 max-w-[320px] rounded cursor-pointer hover:opacity-90"
+                              onClick={() =>
+                                openMediaPreview("image", message.image)
+                              }
+                            />
+                          )}
+
+                          {/* 🖼️ IMAGES (gallery) */}
+                          {Array.isArray(message.images) &&
+                            message.images.length > 0 && (
+                              <div
+                                className={`grid gap-2 ${
+                                  message.images.length === 1
+                                    ? "grid-cols-1"
+                                    : message.images.length === 2
+                                      ? "grid-cols-2"
+                                      : "grid-cols-3"
+                                }`}
+                              >
+                                {message.images.slice(0, 5).map((url) => (
+                                  <img
+                                    key={url}
+                                    src={url}
+                                    alt="attachment"
+                                    className="w-[220px] max-w-full rounded cursor-pointer object-cover hover:opacity-90"
+                                    onClick={() => openMediaPreview("image", url)}
+                                  />
+                                ))}
+                              </div>
+                            )}
+
+                          {/* 📄 FILE / 🎞️ VIDEO / 🖼️ IMAGE (fallback) */}
+                          {message.file ? (
+                            typeof message.contentType === "string" &&
+                            message.contentType.startsWith("image/") ? (
+                              <img
+                                src={message.file}
+                                alt="attachment"
+                                className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90"
+                                onClick={() =>
+                                  openMediaPreview(
+                                    "image",
+                                    message.file,
+                                    message.fileName ||
+                                      getFileName(message.file),
+                                  )
+                                }
+                              />
+                            ) : typeof message.contentType === "string" &&
+                              message.contentType.startsWith("video/") ? (
+                              <button
+                                type="button"
+                                className="message-embed group relative max-w-[320px] cursor-pointer overflow-hidden rounded text-left"
+                                onClick={() =>
+                                  openMediaPreview(
+                                    "video",
+                                    message.file,
+                                    message.fileName ||
+                                      getFileName(message.file),
+                                  )
+                                }
+                                aria-label="Xem video"
+                              >
+                                <video
+                                  src={message.file}
+                                  muted
+                                  playsInline
+                                  preload="metadata"
+                                  className="pointer-events-none w-full"
+                                />
+                                <span
+                                  className="absolute inset-0 flex items-center justify-center transition group-hover:opacity-90"
+                                  style={{ backgroundColor: "var(--message-media-scrim)" }}
+                                >
+                                  <span
+                                    className="flex size-12 items-center justify-center rounded-full"
+                                    style={{ backgroundColor: "var(--message-media-scrim)" }}
+                                  >
+                                    <Play className="ml-0.5 size-6 text-(--discord-accent-contrast)" />
+                                  </span>
+                                </span>
+                              </button>
+                            ) : typeof message.contentType === "string" &&
+                              message.contentType.startsWith("audio/") ? (
+                              <AudioMessage
+                                url={message.file}
+                                fileName={
+                                  message.fileName || getFileName(message.file)
+                                }
+                              />
+                            ) : (
+                              <a
+                                href={message.file}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="message-embed mt-1 flex max-w-[320px] items-center gap-3 rounded px-3 py-2"
+                              >
+                                {/* PREVIEW */}
+                                <div className="message-embed-icon flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl">
+                                  <span className="text-xl">
+                                    {getFileIcon(message.file)}
+                                  </span>
+                                  <span className="message-meta-received text-[10px]">
+                                    {(() => {
+                                      const name = (
+                                        message.fileName ||
+                                        getFileName(message.file) ||
+                                        ""
+                                      ).toLowerCase();
+                                      if (name.endsWith(".pdf")) return "PDF";
+                                      if (name.endsWith(".docx")) return "DOCX";
+                                      if (name.endsWith(".doc")) return "DOC";
+                                      return "FILE";
+                                    })()}
+                                  </span>
+                                </div>
+
+                                {/* NAME */}
+                                <div className="min-w-0">
+                                  <div
+                                    className="message-body-received truncate max-w-[180px] text-sm"
+                                    title={
+                                      message.fileName ||
+                                      getFileName(message.file)
+                                    }
+                                  >
+                                    {message.fileName ||
+                                      getFileName(message.file)}
+                                  </div>
+                                  <div className="message-meta-received text-xs">
+                                    Nhấn để mở
+                                  </div>
+                                </div>
+                              </a>
+                            )
+                          ) : null}
+
+                          {/* TEXT */}
+                          {message.text && <p>{message.text}</p>}
+                        </>
+                      )}
+                    </div>
+                    {!message.isRecalled && !message.isDeletedForMe && (
+                      <div className="mt-1">{renderReactions(message)}</div>
+                    )}
+                    {!message.isRecalled && !message.isDeletedForMe && (
+                      <div
+                        className={`pointer-events-none absolute top-1/2 z-20 flex -translate-y-1/2 items-center gap-1 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 ${
+                          String(message.senderId) === String(authUser?._id)
+                            ? "-left-20"
+                            : "-right-16"
+                        }`}
+                      >
+                        <div className="relative" data-react-picker>
+                          <button
+                            type="button"
+                            title="React"
+                            className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleReactionPicker(message._id, e.currentTarget);
                             }}
                           >
-                            Chỉnh sửa
+                            <Smile className="w-4 h-4" />
                           </button>
-                        </li>
-                        <li>
+
+                        </div>
+
+                        <div className="relative" data-message-menu>
                           <button
                             type="button"
-                            disabled={message.senderId !== authUser._id}
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
-                            onClick={() => {
-                              if (message.senderId !== authUser._id) return;
-                              setRecallPromptMessage(message);
-                              setMessageMenuId(null);
+                            title="Thêm"
+                            className="discord-icon-button message-action-button flex items-center justify-center border border-transparent bg-transparent"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMessageMenuId((id) =>
+                                id === message._id ? null : message._id,
+                              );
                             }}
                           >
-                            Thu hồi
+                            <MoreHorizontal className="w-4 h-4" />
                           </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-white/5"
-                            onClick={() => {
-                              handleForward(message);
-                              setMessageMenuId(null);
-                            }}
-                          >
-                            Chuyển tiếp
-                          </button>
-                        </li>
-                        <li>
-                          <button
-                            type="button"
-                            disabled
-                            className="w-full px-3 py-2 text-left text-sm opacity-50 cursor-not-allowed"
-                          >
-                            Trả lời
-                          </button>
-                        </li>
-                      </ul>
+
+                          {messageMenuId === message._id && (
+                            <ul
+                              className="message-menu absolute bottom-full z-60 mb-1 min-w-44 rounded-lg py-1"
+                              data-message-menu
+                              style={
+                                String(message.senderId) ===
+                                String(authUser?._id)
+                                  ? { right: 0 }
+                                  : { left: 0 }
+                              }
+                            >
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    String(message.senderId) !==
+                                      String(authUser?._id) ||
+                                    message.isDeletedForMe ||
+                                    message.isRecalled ||
+                                    !message.text
+                                  }
+                                  className="message-menu-item w-full px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                                  onClick={() => {
+                                    if (
+                                      String(message.senderId) !==
+                                      String(authUser?._id)
+                                    )
+                                      return;
+                                    if (
+                                      message.isDeletedForMe ||
+                                      message.isRecalled
+                                    )
+                                      return;
+                                    if (!message.text) return;
+                                    setEditingMessage(message);
+                                    setMessageMenuId(null);
+                                  }}
+                                >
+                                  Chỉnh sửa
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    String(message.senderId) !==
+                                    String(authUser?._id)
+                                  }
+                                  className="message-menu-item w-full px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                                  onClick={() => {
+                                    if (
+                                      String(message.senderId) !==
+                                      String(authUser?._id)
+                                    )
+                                      return;
+                                    setRecallPromptMessage(message);
+                                    setMessageMenuId(null);
+                                  }}
+                                >
+                                  Thu hồi
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  className="message-menu-item w-full px-3 py-2 text-left text-sm"
+                                  onClick={() => {
+                                    handleForward(message);
+                                    setMessageMenuId(null);
+                                  }}
+                                >
+                                  Chuyển tiếp
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    message.isRecalled ||
+                                    message.isDeletedForMe ||
+                                    !hasMessageAttachments(message)
+                                  }
+                                  className="message-menu-item w-full px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                                  onClick={() => handleDownloadMessage(message)}
+                                >
+                                  {(() => {
+                                    const n = getMessageDownloadables(message).length;
+                                    return n > 1 ? `Tải xuống (${n})` : "Tải xuống";
+                                  })()}
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="w-full px-3 py-2 text-left text-sm opacity-50 cursor-not-allowed"
+                                >
+                                  Trả lời
+                                </button>
+                              </li>
+                            </ul>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* 😀 REACTIONS (footer so chat-start/end aligns correctly) */}
-            {!message.isRecalled && !message.isDeletedForMe && (
-              <div className="chat-footer">{renderReactions(message)}</div>
+              ),
             )}
           </div>
-          )
-        ))}
-      </div>
-      {selectedConversation && isTyping && (
-        <div className="px-5 pb-1 text-sm text-base-content/60">
-          {(() => {
-            const fromId = typingFromUserId;
-            if (!fromId) return "Đang gõ...";
-            const u = users.find((x) => String(x._id) === String(fromId));
-            const name = u?.fullName || fromId;
-            // For DM it can still be useful; for GROUP it's required.
-            return `${name} đang gõ...`;
-          })()}
-        </div>
-      )}
+          {selectedConversation && isTyping && (
+            <div className="px-5 pb-1 text-sm text-(--discord-text-muted)">
+              {(() => {
+                const fromId = typingFromUserId;
+                if (!fromId) return "Đang gõ...";
+                const u = users.find((x) => String(x._id) === String(fromId));
+                const name = u?.fullName || fromId;
+                return `${name} đang gõ...`;
+              })()}
+            </div>
+          )}
+          <MessageInput
+            editingMessage={editingMessage}
+            onCancelEdit={() => setEditingMessage(null)}
+          />
+          </div>
+        </>
+      ) : null}
+
       {recallPromptMessage && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[55] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-55 flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setRecallPromptMessage(null);
           }}
@@ -964,7 +1464,9 @@ const ChatContainer = () => {
           <div className="discord-modal-card discord-scroll max-h-[400px] w-[320px] overflow-y-auto p-4">
             {/* HEADER */}
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-base-content font-semibold">Chọn người nhận</h2>
+              <h2 className="text-base-content font-semibold">
+                Chọn người nhận
+              </h2>
               <button
                 onClick={() => setShowForwardModal(false)}
                 className="discord-icon-button flex size-8 items-center justify-center rounded-full bg-white/5"
@@ -992,9 +1494,46 @@ const ChatContainer = () => {
           </div>
         </div>
       )}
+      {typeof document !== "undefined" &&
+        reactingForMessageId &&
+        reactionPickerStyle &&
+        createPortal(
+          <div
+            data-react-picker
+            className="fixed z-9999 shadow-xl"
+            style={{
+              top: reactionPickerStyle.top,
+              left: reactionPickerStyle.left,
+            }}
+          >
+            <EmojiPicker
+              width={REACTION_PICKER_W}
+              height={REACTION_PICKER_H}
+              onEmojiClick={async (emojiData) => {
+                const messageId = reactingForMessageId;
+                setReactingForMessageId(null);
+                reactButtonRef.current = null;
+                setReactionPickerStyle(null);
+                if (messageId) {
+                  await reactToMessage(messageId, emojiData.emoji);
+                }
+              }}
+              lazyLoadEmojis
+            />
+          </div>,
+          document.body,
+        )}
+
+      <MediaLightboxModal
+        open={Boolean(mediaPreview)}
+        type={mediaPreview?.type}
+        url={mediaPreview?.url}
+        fileName={mediaPreview?.fileName}
+        onClose={() => setMediaPreview(null)}
+      />
       {historyMessage && (
         <div
-          className="discord-modal-scrim fixed inset-0 z-[70] flex items-center justify-center p-4"
+          className="discord-modal-scrim fixed inset-0 z-70 flex items-center justify-center p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) setHistoryMessage(null);
           }}
@@ -1026,8 +1565,10 @@ const ChatContainer = () => {
 
             <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
               <div className="rounded-lg border border-base-300 bg-base-200 p-3">
-                <div className="text-xs text-base-content/60 mb-1">Nội dung hiện tại</div>
-                <div className="text-base-content whitespace-pre-wrap break-words">
+                <div className="text-xs text-base-content/60 mb-1">
+                  Nội dung hiện tại
+                </div>
+                <div className="text-base-content whitespace-pre-wrap wrap-break-word">
                   {historyMessage.text || ""}
                 </div>
               </div>
@@ -1042,7 +1583,8 @@ const ChatContainer = () => {
                       const when = h?.editedAt
                         ? formatMessageTime(h.editedAt)
                         : `#${idx + 1}`;
-                      const prev = typeof h?.prevText === "string" ? h.prevText : "";
+                      const prev =
+                        typeof h?.prevText === "string" ? h.prevText : "";
                       const next =
                         typeof h?.nextText === "string" ? h.nextText : null;
                       return (
@@ -1058,7 +1600,7 @@ const ChatContainer = () => {
                               <div className="text-xs text-base-content/50 mb-1">
                                 Trước
                               </div>
-                              <div className="text-base-content whitespace-pre-wrap break-words">
+                              <div className="text-base-content whitespace-pre-wrap wrap-break-word">
                                 {prev}
                               </div>
                             </div>
@@ -1067,7 +1609,7 @@ const ChatContainer = () => {
                                 <div className="text-xs text-base-content/50 mb-1">
                                   Sau
                                 </div>
-                                <div className="text-base-content whitespace-pre-wrap break-words">
+                                <div className="text-base-content whitespace-pre-wrap wrap-break-word">
                                   {next}
                                 </div>
                               </div>
@@ -1086,11 +1628,6 @@ const ChatContainer = () => {
           </div>
         </div>
       )}
-
-      <MessageInput
-        editingMessage={editingMessage}
-        onCancelEdit={() => setEditingMessage(null)}
-      />
     </div>
   );
 };

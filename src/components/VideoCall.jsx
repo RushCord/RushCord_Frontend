@@ -7,7 +7,70 @@ import {
   Track,
 } from "livekit-client";
 import { axiosInstance } from "../lib/axios";
+import { pickDeviceId } from "../lib/mediaDevices";
 import { useAuthStore } from "../store/useAuthStore";
+import { useChatStore } from "../store/useChatStore";
+import { useMediaDeviceStore } from "../store/useMediaDeviceStore";
+import { useLiveKitMediaDeviceSync } from "../hooks/useLiveKitMediaDeviceSync";
+
+// Shared Room cache — avoids React StrictMode mount/unmount disconnecting mid-connect.
+const _sharedRooms = globalThis.__RUSHCORD_LIVEKIT_ROOMS__ || new Map();
+globalThis.__RUSHCORD_LIVEKIT_ROOMS__ = _sharedRooms;
+
+function getSharedRoom(roomName) {
+  const key = String(roomName || "");
+  if (!key) return new Room();
+  const existing = _sharedRooms.get(key);
+  if (existing?.room) return existing.room;
+  const room = new Room();
+  _sharedRooms.set(key, { room, mounts: 0, disconnectTimer: null });
+  return room;
+}
+
+function retainSharedRoom(roomName) {
+  const key = String(roomName || "");
+  if (!key) return () => {};
+  const entry = _sharedRooms.get(key) || { room: new Room(), mounts: 0, disconnectTimer: null };
+  if (!_sharedRooms.get(key)) _sharedRooms.set(key, entry);
+  entry.mounts = (entry.mounts || 0) + 1;
+  if (entry.disconnectTimer) {
+    clearTimeout(entry.disconnectTimer);
+    entry.disconnectTimer = null;
+  }
+  return () => {
+    entry.mounts = Math.max(0, (entry.mounts || 0) - 1);
+    if (entry.mounts === 0) {
+      // Longer delay: StrictMode remount + in-flight connect/disconnect can exceed 800ms on slow machines.
+      entry.disconnectTimer = setTimeout(() => {
+        try {
+          entry.room?.disconnect();
+        } catch {
+          // ignore
+        }
+      }, 2500);
+    }
+  };
+}
+
+/** Avoid stacking room.connect() on the same Room (StrictMode / effect re-run) — causes leave + PC failures. */
+async function ensureRoomDisconnected(room) {
+  if (room.state === "disconnected") return;
+  try {
+    await room.disconnect();
+  } catch {
+    // ignore
+  }
+}
+
+const isBenignDisconnectError = (e) => {
+  const msg = String(e?.message || e || "").toLowerCase();
+  return (
+    msg.includes("client initiated disconnect") ||
+    msg.includes("cancelled") ||
+    msg.includes("aborterror") ||
+    msg.includes("leave request while trying to (re)connect")
+  );
+};
 
 export default function VideoCall({
   myId: _myId,
@@ -23,8 +86,15 @@ export default function VideoCall({
   const remoteAudio = useRef(null);
 
   const socket = useAuthStore((s) => s.socket);
+  const authUser = useAuthStore((s) => s.authUser);
+  const users = useChatStore((s) => s.users);
+  const voiceMicMuted = useChatStore((s) => s.voiceMicMuted);
+  const voiceOutputMuted = useChatStore((s) => s.voiceOutputMuted);
+  const outputVolume = useMediaDeviceStore((s) => s.outputVolume);
 
-  const room = useMemo(() => new Room(), []);
+  const room = useMemo(() => getSharedRoom(roomName), [roomName]);
+  const connectAttemptRef = useRef(0);
+  const callStatusRef = useRef("idle");
   const [callStatus, setCallStatus] = useState("idle"); // idle, connecting, connected, ended
   const [error, setError] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -32,10 +102,18 @@ export default function VideoCall({
   const [cameras, setCameras] = useState([]); // [{ deviceId, label }]
   const [microphones, setMicrophones] = useState([]); // [{ deviceId, label }]
   const [speakers, setSpeakers] = useState([]); // [{ deviceId, label }]
-  const [selectedCameraId, setSelectedCameraId] = useState("");
-  const [selectedMicId, setSelectedMicId] = useState("");
-  const [selectedSpeakerId, setSelectedSpeakerId] = useState("");
+  const [selectedCameraId, setSelectedCameraId] = useState(
+    () => useMediaDeviceStore.getState().cameraId,
+  );
+  const [selectedMicId, setSelectedMicId] = useState(
+    () => useMediaDeviceStore.getState().microphoneId,
+  );
+  const [selectedSpeakerId, setSelectedSpeakerId] = useState(
+    () => useMediaDeviceStore.getState().speakerId,
+  );
   const [speakerSupported, setSpeakerSupported] = useState(true);
+  const [remoteHasVideo, setRemoteHasVideo] = useState(false);
+  const [localHasVideo, setLocalHasVideo] = useState(true);
 
   const refreshDevices = async () => {
     try {
@@ -48,7 +126,8 @@ export default function VideoCall({
           label: d.label || `Camera ${idx + 1}`,
         }));
       setCameras(cams);
-      if (!selectedCameraId && cams[0]?.deviceId) setSelectedCameraId(cams[0].deviceId);
+      const prefs = useMediaDeviceStore.getState();
+      setSelectedCameraId((prev) => pickDeviceId(cams, prev || prefs.cameraId));
 
       const mics = devices
         .filter((d) => d.kind === "audioinput")
@@ -57,7 +136,7 @@ export default function VideoCall({
           label: d.label || `Microphone ${idx + 1}`,
         }));
       setMicrophones(mics);
-      if (!selectedMicId && mics[0]?.deviceId) setSelectedMicId(mics[0].deviceId);
+      setSelectedMicId((prev) => pickDeviceId(mics, prev || prefs.microphoneId));
 
       const outs = devices
         .filter((d) => d.kind === "audiooutput")
@@ -66,7 +145,12 @@ export default function VideoCall({
           label: d.label || `Speaker ${idx + 1}`,
         }));
       setSpeakers(outs);
-      if (!selectedSpeakerId && outs[0]?.deviceId) setSelectedSpeakerId(outs[0].deviceId);
+      setSelectedSpeakerId((prev) => {
+        if (prev) return prev;
+        const preferred = prefs.speakerId;
+        if (preferred && outs.some((o) => o.deviceId === preferred)) return preferred;
+        return outs[0]?.deviceId || "";
+      });
     } catch {
       // ignore
     }
@@ -84,6 +168,8 @@ export default function VideoCall({
       setSpeakerSupported(true);
       await fn.call(el, deviceId || "");
       setSelectedSpeakerId(deviceId || "");
+      useMediaDeviceStore.getState().setSpeakerId(deviceId || "");
+      el.volume = Math.max(0, Math.min(1, useMediaDeviceStore.getState().outputVolume / 100));
     } catch (e) {
       setSpeakerSupported(false);
       console.error("setSinkId failed:", e);
@@ -93,7 +179,8 @@ export default function VideoCall({
   const switchCamera = async (deviceId) => {
     if (!deviceId) return;
     setSelectedCameraId(deviceId);
-    if (callStatus !== "connected") return;
+    useMediaDeviceStore.getState().setCameraId(deviceId);
+    if (room.state !== "connected") return;
     try {
       const pub = room.localParticipant
         .getTrackPublications()
@@ -130,7 +217,8 @@ export default function VideoCall({
   const switchMicrophone = async (deviceId) => {
     if (!deviceId) return;
     setSelectedMicId(deviceId);
-    if (callStatus !== "connected") return;
+    useMediaDeviceStore.getState().setMicrophoneId(deviceId);
+    if (room.state !== "connected") return;
     try {
       const pub = room.localParticipant
         .getTrackPublications()
@@ -142,6 +230,7 @@ export default function VideoCall({
       });
 
       await room.localParticipant.publishTrack(nextTrack);
+      await room.localParticipant.setMicrophoneEnabled(!voiceMicMuted);
 
       if (pub) {
         try {
@@ -162,38 +251,8 @@ export default function VideoCall({
     }
   };
 
-  const connectToRoom = async () => {
-    if (!roomName) {
-      setError("Missing roomName");
-      return;
-    }
-    try {
-      setError(null);
-      setCallStatus("connecting");
-
-      const { data } = await axiosInstance.post("/livekit/token", { roomName });
-      const { url, token } = data || {};
-      if (!url || !token) throw new Error("Invalid token response");
-
-      await room.connect(url, token);
-      await room.localParticipant.enableCameraAndMicrophone();
-
-      // attach local preview
-      const camPub = room.localParticipant.getTrackPublications().find((p) => p.track?.kind === Track.Kind.Video);
-      if (camPub?.track && localVideo.current) {
-        camPub.track.attach(localVideo.current);
-      }
-
-      await refreshDevices();
-      setCallStatus("connected");
-    } catch (e) {
-      console.error("LiveKit connect error:", e);
-      setError(`❌ LiveKit connect error: ${e?.message || String(e)}`);
-      setCallStatus("idle");
-    }
-  };
-
   const endCall = ({ sendHangup = true } = {}) => {
+    connectAttemptRef.current += 1;
     try {
       if (sendHangup && socket && remoteId && roomName) {
         socket.emit("hangup", { to: remoteId, roomName });
@@ -209,15 +268,22 @@ export default function VideoCall({
     }
 
     setCallStatus("ended");
+    callStatusRef.current = "ended";
     onEnd && onEnd();
   };
 
   useEffect(() => {
     const onSubscribed = (track) => {
       if (track.kind === Track.Kind.Video && remoteVideo.current) {
+        setRemoteHasVideo(true);
         track.attach(remoteVideo.current);
       }
       if (track.kind === Track.Kind.Audio && remoteAudio.current) {
+        remoteAudio.current.muted = voiceOutputMuted;
+        remoteAudio.current.volume = Math.max(
+          0,
+          Math.min(1, useMediaDeviceStore.getState().outputVolume / 100),
+        );
         track.attach(remoteAudio.current);
         if (selectedSpeakerId) applySpeaker(selectedSpeakerId);
       }
@@ -225,6 +291,7 @@ export default function VideoCall({
 
     const onUnsubscribed = (track) => {
       try {
+        if (track.kind === Track.Kind.Video) setRemoteHasVideo(false);
         track.detach();
       } catch {
         // ignore
@@ -237,11 +304,6 @@ export default function VideoCall({
     return () => {
       room.off(RoomEvent.TrackSubscribed, onSubscribed);
       room.off(RoomEvent.TrackUnsubscribed, onUnsubscribed);
-      try {
-        room.disconnect();
-      } catch {
-        // ignore
-      }
     };
   }, [room]);
 
@@ -257,13 +319,91 @@ export default function VideoCall({
     return () => socket.off("hangup", handleHangup);
   }, [socket, remoteId, roomName]);
 
+  useEffect(() => retainSharedRoom(roomName), [roomName]);
+
   useEffect(() => {
     if (!autoStart) return;
-    if (callStatus !== "idle") return;
+
     if (!roomName) return;
-    connectToRoom();
+
+    let active = true;
+    const attempt = ++connectAttemptRef.current;
+
+    const finishConnectedUi = async () => {
+      await room.localParticipant.enableCameraAndMicrophone();
+      await room.localParticipant.setMicrophoneEnabled(!voiceMicMuted);
+      if (!active || attempt !== connectAttemptRef.current) return;
+
+      const camPub = room.localParticipant
+        .getTrackPublications()
+        .find((p) => p.track?.kind === Track.Kind.Video);
+      if (camPub?.track && localVideo.current) {
+        setLocalHasVideo(true);
+        camPub.track.attach(localVideo.current);
+      } else {
+        setLocalHasVideo(false);
+      }
+
+      await refreshDevices();
+      if (!active || attempt !== connectAttemptRef.current) return;
+
+      const prefs = useMediaDeviceStore.getState();
+      if (prefs.cameraId) await switchCamera(prefs.cameraId);
+      if (prefs.microphoneId) await switchMicrophone(prefs.microphoneId);
+      if (!active || attempt !== connectAttemptRef.current) return;
+
+      setCallStatus("connected");
+      callStatusRef.current = "connected";
+    };
+
+    (async () => {
+      try {
+        if (room.state === "connected") {
+          setError(null);
+          await finishConnectedUi();
+          return;
+        }
+
+        setError(null);
+        setCallStatus("connecting");
+        callStatusRef.current = "connecting";
+
+        const { data } = await axiosInstance.post("/livekit/token", { roomName });
+        if (!active || attempt !== connectAttemptRef.current) return;
+
+        const { url, token } = data || {};
+        if (!url || !token) throw new Error("Invalid token response");
+
+        await ensureRoomDisconnected(room);
+        if (!active || attempt !== connectAttemptRef.current) return;
+
+        await room.connect(url, token);
+        if (!active || attempt !== connectAttemptRef.current) return;
+
+        await finishConnectedUi();
+      } catch (e) {
+        if (!active || attempt !== connectAttemptRef.current) return;
+        if (isBenignDisconnectError(e)) {
+          setCallStatus("idle");
+          callStatusRef.current = "idle";
+          return;
+        }
+        console.error("LiveKit connect error:", e);
+        setError(`❌ LiveKit connect error: ${e?.message || String(e)}`);
+        setCallStatus("idle");
+        callStatusRef.current = "idle";
+      }
+    })();
+
+    return () => {
+      active = false;
+      connectAttemptRef.current += 1;
+      if (room.state !== "connected") {
+        void ensureRoomDisconnected(room);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, roomName]);
+  }, [autoStart, roomName, room]);
 
   useEffect(() => {
     refreshDevices();
@@ -289,11 +429,41 @@ export default function VideoCall({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSpeakerId]);
 
+  useLiveKitMediaDeviceSync({
+    callStatus,
+    selectedCameraId,
+    selectedMicId,
+    selectedSpeakerId,
+    switchCamera,
+    switchMicrophone,
+    applySpeaker,
+    cameraLiveSwitch: true,
+  });
+
+  useEffect(() => {
+    const el = remoteAudio.current;
+    if (!el) return;
+    el.volume = Math.max(0, Math.min(1, outputVolume / 100));
+  }, [outputVolume, callStatus]);
+
   useEffect(() => {
     if (!forceEndSignal) return;
     endCall({ sendHangup: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forceEndSignal]);
+
+  useEffect(() => {
+    if (callStatus !== "connected") return;
+    try {
+      room.localParticipant.setMicrophoneEnabled(!voiceMicMuted);
+    } catch {
+      // ignore
+    }
+  }, [callStatus, voiceMicMuted, room]);
+
+  useEffect(() => {
+    if (remoteAudio.current) remoteAudio.current.muted = voiceOutputMuted;
+  }, [voiceOutputMuted, callStatus]);
 
   return (
     <div className="w-full rounded-2xl border border-white/10 bg-[var(--discord-panel)] p-4">
@@ -418,24 +588,55 @@ export default function VideoCall({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[var(--discord-panel)] shadow-lg">
           <p className="border-b border-white/10 bg-black/10 p-3 text-sm text-base-content/70">You</p>
-          <video
-            ref={localVideo}
-            autoPlay
-            playsInline
-            muted
-            className="h-56 w-full bg-black object-cover md:h-72"
-          />
+          <div className="relative h-56 w-full bg-[var(--discord-sidebar)] md:h-72">
+            {!localHasVideo ? (
+              <div className="flex h-full items-center justify-center">
+                <img
+                  src={authUser?.profilePic || "/avatar.png"}
+                  alt={authUser?.fullName || "You"}
+                  className="size-24 rounded-full border-2 border-white/10 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = "/avatar.png";
+                  }}
+                />
+              </div>
+            ) : null}
+            <video
+              ref={localVideo}
+              autoPlay
+              playsInline
+              muted
+              className={`h-56 w-full bg-black object-cover md:h-72 ${localHasVideo ? "" : "pointer-events-none absolute inset-0 opacity-0"}`}
+            />
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[var(--discord-panel)] shadow-lg">
           <p className="border-b border-white/10 bg-black/10 p-3 text-sm text-base-content/70">Remote</p>
-          <video
-            ref={remoteVideo}
-            autoPlay
-            playsInline
-            className="h-56 w-full bg-black object-cover md:h-72"
-          />
-          <audio ref={remoteAudio} autoPlay />
+          <div className="relative h-56 w-full bg-[var(--discord-sidebar)] md:h-72">
+            {!remoteHasVideo ? (
+              <div className="flex h-full items-center justify-center">
+                <img
+                  src={
+                    users.find((u) => String(u._id) === String(remoteId))?.profilePic ||
+                    "/avatar.png"
+                  }
+                  alt="Remote"
+                  className="size-24 rounded-full border-2 border-white/10 object-cover"
+                  onError={(e) => {
+                    e.currentTarget.src = "/avatar.png";
+                  }}
+                />
+              </div>
+            ) : null}
+            <video
+              ref={remoteVideo}
+              autoPlay
+              playsInline
+              className={`h-56 w-full bg-black object-cover md:h-72 ${remoteHasVideo ? "" : "pointer-events-none absolute inset-0 opacity-0"}`}
+            />
+          </div>
+          <audio ref={remoteAudio} autoPlay className="hidden" />
         </div>
       </div>
     </div>

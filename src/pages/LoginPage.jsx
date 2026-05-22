@@ -1,132 +1,95 @@
-import { Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
-import React from "react";
-import { Link } from "react-router-dom";
-import AuthImagePattern from "../components/AuthImagePattern";
+import { Loader2, Mail } from "lucide-react";
 import { useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { AuthField } from "../components/auth/AuthField";
+import { AuthFooter } from "../components/auth/AuthFooter";
+import { AuthLayout } from "../components/auth/AuthLayout";
+import { AuthPasswordField } from "../components/auth/AuthPasswordField";
 import { useAuthStore } from "../store/useAuthStore";
-import logoImg from "../assets/logo.png";
 
 export const LoginPage = () => {
-  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
   const { login, isLoggingIn } = useAuthStore();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get("redirect")?.trim() || "";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    login(formData);
+    const ok = await login(formData);
+    if (ok) {
+      if (redirectTo && redirectTo.startsWith("/")) {
+        navigate(redirectTo, { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[var(--discord-app)] lg:grid lg:grid-cols-2">
-      <div className="flex items-center justify-center p-6 sm:p-12">
-        <div className="discord-card w-full max-w-md p-8">
-          <div className="mb-8 text-center">
-            <div className="flex flex-col items-center gap-2 group">
-              <div
-                className="flex h-14 w-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25"
-              >
-                <img src={logoImg} alt="RushCord logo" className="h-8 w-8 rounded-lg object-cover" />
-              </div>
-              <h1 className="text-2xl font-bold mt-2">Welcome Back</h1>
-              <p className="text-base-content/60">Sign in to your account</p>
-            </div>
-          </div>
+    <AuthLayout
+      title="Welcome Back"
+      subtitle="Sign in to your account"
+      patternTitle="Welcome back!"
+      patternSubtitle="Sign in to continue your conversations and catch up with your messages."
+    >
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <AuthField
+          label="Email"
+          type="email"
+          placeholder="you@example.com"
+          icon={Mail}
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+        />
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Email</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-5 w-5 text-base-content/40" />
-                </div>
-                <input
-                  type="email"
-                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
-                  placeholder="you@example.com"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                />
-              </div>
-            </div>
+        <AuthPasswordField
+          label="Password"
+          value={formData.password}
+          onChange={(e) =>
+            setFormData({ ...formData, password: e.target.value })
+          }
+          footer={
+            <Link to="/forgot-password" className="label-text-alt link link-primary">
+              Forgot password?
+            </Link>
+          }
+        />
 
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Password</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-5 w-5 text-base-content/40" />
-                </div>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5 text-base-content/40" />
-                  ) : (
-                    <Eye className="h-5 w-5 text-base-content/40" />
-                  )}
-                </button>
-              </div>
-            </div>
+        <button
+          type="submit"
+          className="btn btn-primary h-12 w-full rounded-lg border-0"
+          disabled={isLoggingIn}
+        >
+          {isLoggingIn ? (
+            <>
+              <Loader2 className="size-5 animate-spin" />
+              Loading...
+            </>
+          ) : (
+            "Sign in"
+          )}
+        </button>
+      </form>
 
-            <button
-              type="submit"
-              className="btn btn-primary h-12 w-full rounded-lg border-0"
-              disabled={isLoggingIn}
-            >
-              {isLoggingIn ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                "Sign in"
-              )}
-            </button>
-          </form>
-
-          <div className="text-center space-y-2">
-            <p className="text-base-content/60">
-              Don&apos;t have an account?{" "}
-              <Link to="/signup" className="link link-primary">
-                Create account
-              </Link>
-            </p>
-            <p className="text-sm text-base-content/50">
-              Need to enter your email code?{" "}
-              <Link to="/confirm-email" className="link link-primary">
-                Verify email
-              </Link>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <AuthImagePattern
-        title={"Welcome back!"}
-        subtitle={
-          "Sign in to continue your conversations and catch up with your messages."
-        }
+      <AuthFooter
+        lines={[
+          {
+            text: "Don't have an account?",
+            linkTo: "/signup",
+            linkLabel: "Create account",
+          },
+          {
+            text: "Need to enter your email code?",
+            linkTo: "/confirm-email",
+            linkLabel: "Verify email",
+            muted: true,
+          },
+        ]}
       />
-    </div>
+    </AuthLayout>
   );
 };

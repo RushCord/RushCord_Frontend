@@ -14,21 +14,21 @@ import { useNavigate } from "react-router-dom";
 import { useChatStore } from "../store/useChatStore";
 
 import { useAuthStore } from "../store/useAuthStore";
-import Sidebar from "../components/SideBar";
+import AppChatLayout from "../components/AppChatLayout";
 
 import NoChatSelected from "../components/NoChatSelected";
 import ChatContainer from "../components/ChatContainer";
-
-function dmConversationId(a, b) {
-  const [x, y] = [String(a || ""), String(b || "")].sort();
-  return `DM#${x}#${y}`;
-}
+import FriendsPanel from "../components/FriendsPanel";
+import ExploreGroupsPanel from "../components/ExploreGroupsPanel";
+import { dmConversationId } from "../lib/dmConversationId";
+import { getLastMessagePreviewBody } from "../lib/utils";
 
 export const HomePage = () => {
   const navigate = useNavigate();
   const {
     selectedConversation,
     setSelectedConversation,
+    homeMainView,
     conversations,
     users,
     friends,
@@ -87,7 +87,7 @@ export const HomePage = () => {
       const title = isGroup
         ? c?.title || "Group"
         : other?.fullName || "Direct message";
-      const preview = String(c?.lastMessage?.text || "");
+      const preview = getLastMessagePreviewBody(c?.lastMessage);
       return `${title} ${preview}`.toLowerCase().includes(q);
     });
   }, [mobileSearch, recentConversations, users]);
@@ -194,8 +194,8 @@ export const HomePage = () => {
                     ? c.avatar || "/avatar.png"
                     : other?.profilePic || "/avatar.png";
                   const preview =
-                    c?.lastMessage?.text ||
-                    (isGroup ? "Group conversation" : "Direct message");
+                    getLastMessagePreviewBody(c?.lastMessage) ||
+                    (isGroup ? "Nhóm" : "Tin nhắn trực tiếp");
                   const timeLabel =
                     c?.lastMessageAt || c?.lastMessage?.createdAt || "";
                   const isOnline =
@@ -509,16 +509,16 @@ export const HomePage = () => {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[var(--discord-app)]">
-      <div className="flex h-full min-h-0 w-full overflow-hidden">
-        <section className="conversation-sidebar discord-sidebar flex h-full flex-col">
-          <Sidebar />
-        </section>
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-white/5">
-          {!selectedConversation ? <NoChatSelected /> : <ChatContainer />}
-        </div>
-      </div>
-    </div>
+    <AppChatLayout>
+      {homeMainView === "discover" ? (
+        <ExploreGroupsPanel />
+      ) : homeMainView === "friends" ? (
+        <FriendsPanel variant="embedded" />
+      ) : !selectedConversation ? (
+        <NoChatSelected />
+      ) : (
+        <ChatContainer />
+      )}
+    </AppChatLayout>
   );
 };

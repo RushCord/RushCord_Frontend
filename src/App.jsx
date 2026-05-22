@@ -4,9 +4,15 @@ import { HomePage } from "./pages/HomePage";
 import { SignUpPage } from "./pages/SignUpPage";
 import { ConfirmEmailPage } from "./pages/ConfirmEmailPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { ConfirmEmailChangePage } from "./pages/ConfirmEmailChangePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { FriendsPage } from "./pages/FriendsPage";
+import { ExplorePage } from "./pages/ExplorePage";
+import { ExploreUserPage } from "./pages/ExploreUserPage";
+import { InviteJoinPage } from "./pages/InviteJoinPage";
 import { useEffect } from "react";
 import { useAuthStore } from "./store/useAuthStore";
 import { Loader } from "lucide-react";
@@ -39,10 +45,16 @@ const App = () => {
           <Route path="/" element={authUser ? <HomePage /> : <Navigate to="/login" />} />
           <Route path="/signup" element={!authUser ? <SignUpPage /> : <Navigate to="/" />} />
         <Route path="/confirm-email" element={!authUser ? <ConfirmEmailPage /> : <Navigate to="/" />} />
+          <Route path="/forgot-password" element={!authUser ? <ForgotPasswordPage /> : <Navigate to="/" />} />
+          <Route path="/reset-password" element={!authUser ? <ResetPasswordPage /> : <Navigate to="/" />} />
+          <Route path="/confirm-email-change" element={<ConfirmEmailChangePage />} />
           <Route path="/login" element={!authUser ? <LoginPage /> : <Navigate to="/" />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/profile" element={authUser ? <ProfilePage /> : <Navigate to="/login" />} />
+          <Route path="/profile/:userId" element={authUser ? <ExploreUserPage /> : <Navigate to="/login" />} />
         <Route path="/friends" element={authUser ? <FriendsPage /> : <Navigate to="/login" />} />
+        <Route path="/explore" element={authUser ? <ExplorePage /> : <Navigate to="/login" />} />
+        <Route path="/invite/:code" element={<InviteJoinPage />} />
         </Routes>
       </main>
 
