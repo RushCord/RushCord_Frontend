@@ -42,6 +42,34 @@ test.describe('Voice/Video Call Screen UI', () => {
       });
     });
 
+    // Giả lập danh sách bạn bè để tránh kẹt call thực tế
+    await page.route('**/api/friends', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.route('**/api/friends/requests**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    // Giả lập danh sách User trong hệ thống để tránh kẹt loading xương cá (skeleton) ở Sidebar
+    await page.route('**/api/messages/users', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { _id: 'userAlice', email: 'alice@example.com', fullName: 'Alice Watson', profilePic: '' }
+        ]),
+      });
+    });
+
     // Giả lập danh sách kênh trong nhóm
     await page.route(`**/api/conversations/${encodeURIComponent(conversationId)}/channels`, async (route) => {
       await route.fulfill({
