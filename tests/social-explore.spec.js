@@ -240,4 +240,100 @@ test.describe('Social, Explore & Invite E2E', () => {
     // Chuyển hướng thành công về trang chủ
     await expect(page).toHaveURL('/');
   });
+
+  test('should allow declining incoming friend request and canceling outgoing request', async ({ page }) => {
+    // Mock incoming request từ Charlie
+    await page.route('**/api/friends/requests?type=incoming', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ otherUserId: 'userCharlie' }]),
+      });
+    });
+
+    // Mock outgoing request tới Bob
+    await page.route('**/api/friends/requests?type=outgoing', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ otherUserId: 'userBob' }]),
+      });
+    });
+
+    await page.route('**/api/messages/users', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { _id: 'userBob', email: 'bob@example.com', fullName: 'Bob Builder' },
+          { _id: 'userCharlie', email: 'charlie@example.com', fullName: 'Charlie Chaplin' }
+        ]),
+      });
+    });
+
+    // Mock API xóa/từ chối lời mời
+    await page.route('**/api/friends/requests/*', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Request removed' }),
+        });
+      }
+    });
+
+    await page.goto('/friends');
+
+    // 1. Từ chối lời mời đến (Decline)
+    await expect(page.getByText('Charlie Chaplin')).toBeVisible();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.getByText('Request removed').first()).toBeVisible();
+
+    // 2. Hủy lời mời đi (Cancel)
+    await expect(page.getByText('Bob Builder')).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByText('Request removed').first()).toBeVisible();
+  });
+
+  test('should display empty message when search results are empty', async ({ page }) => {
+    // Mock tìm kiếm user rỗng
+    await page.route('**/api/users/search*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    // Mock tìm kiếm nhóm rỗng
+    await page.route('**/api/conversations/explore*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    await page.goto('/explore');
+
+    // Tìm kiếm user không tồn tại
+    const userSearchInput = page.locator('input[placeholder="Tìm theo tên, email hoặc ID..."]');
+    await userSearchInput.fill('nonexistentuser');
+    await expect(page.getByText('Không có người dùng phù hợp.')).toBeVisible();
+
+    // Tìm kiếm nhóm không tồn tại
+    await page.getByRole('button', { name: 'Nhóm', exact: true }).click();
+    const groupSearchInput = page.locator('input[placeholder="Tìm nhóm theo tên..."]');
+    await groupSearchInput.fill('nonexistentgroup');
+    await expect(page.getByText('Không có nhóm phù hợp.')).toBeVisible();
+  });
+
+  test('should display error message for expired or invalid invite code', async ({ page }) => {
+    // Mock API preview trả về null (lỗi / hết hạn)
+    await page.route('**/api/invites/expiredCode/preview', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(null), // null biểu thị không tồn tại
+      });
+    });
+
+    await page.goto('/invite/expiredCode');
+
+    // Kiểm tra thông báo lỗi
+    await expect(page.getByText('Lời mời không tồn tại hoặc đã hết hiệu lực')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Tham gia nhóm' })).not.toBeVisible();
+  });
 });

@@ -172,4 +172,55 @@ test.describe('Profile & Settings Page E2E', () => {
     await page.getByRole('button', { name: 'Đổi mật khẩu' }).click();
     await expect(page.getByText('Đã đổi mật khẩu thành công')).toBeVisible();
   });
+
+  test('should validate empty name on profile details update', async ({ page }) => {
+    await page.goto('/profile');
+    await page.getByRole('button', { name: 'Chỉnh sửa' }).click();
+
+    // Xóa trống Họ và Tên
+    await page.locator('input[placeholder="Nguyễn"]').fill('');
+    await page.locator('input[placeholder="Văn An"]').fill('');
+
+    // Click Lưu
+    await page.getByRole('button', { name: 'Lưu' }).click();
+    await expect(page.getByText('Họ và tên không được để trống')).toBeVisible();
+  });
+
+  test('should show error when new password is identical to current password', async ({ page }) => {
+    await page.goto('/profile');
+    await page.getByRole('button', { name: 'Thông tin bảo mật' }).click();
+    await page.getByRole('button', { name: 'Chỉnh sửa' }).click();
+
+    const currentPassInput = page.locator('div:has-text("Mật khẩu hiện tại") > div > input');
+    const newPassInput = page.locator('div:has-text("Mật khẩu mới") > div > input').first();
+    const confirmPassInput = page.locator('div:has-text("Xác nhận mật khẩu mới") > div > input');
+
+    // Điền mật khẩu mới giống hệt mật khẩu hiện tại
+    await currentPassInput.fill('SamePassword123!');
+    await newPassInput.fill('SamePassword123!');
+    await confirmPassInput.fill('SamePassword123!');
+
+    await page.getByRole('button', { name: 'Đổi mật khẩu' }).click();
+    await expect(page.getByText('Mật khẩu mới phải khác mật khẩu hiện tại')).toBeVisible();
+  });
+
+  test('should toggle password field visibility type on eye icon click', async ({ page }) => {
+    await page.goto('/profile');
+    await page.getByRole('button', { name: 'Thông tin bảo mật' }).click();
+    await page.getByRole('button', { name: 'Chỉnh sửa' }).click();
+
+    const newPassInput = page.locator('input[autocomplete="new-password"]').first();
+    const visibilityBtn = page.locator('input[autocomplete="new-password"] + button').first();
+
+    // Ban đầu là type password
+    await expect(newPassInput).toHaveAttribute('type', 'password');
+
+    // Click toggle hiển thị
+    await visibilityBtn.click();
+    await expect(newPassInput).toHaveAttribute('type', 'text');
+
+    // Click ẩn lại
+    await visibilityBtn.click();
+    await expect(newPassInput).toHaveAttribute('type', 'password');
+  });
 });

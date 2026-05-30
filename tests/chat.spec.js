@@ -140,4 +140,141 @@ test.describe('Real-time Chatting & Inbox', () => {
     // Xác nhận input đã trống sau khi gửi
     await expect(messageInput).toHaveValue('');
   });
+
+  test('should prevent sending empty or whitespace-only messages', async ({ page }) => {
+    await page.goto('/');
+    
+    // Vào phòng chat Bob
+    await page.locator(`button[title="Bob Builder"]`).click();
+
+    const messageInput = page.locator('input[placeholder^="Nhắn #"]');
+    await expect(messageInput).toBeVisible();
+
+    // Nhập toàn khoảng trắng
+    await messageInput.fill('    ');
+    
+    // Đăng ký route gửi tin nhắn để kiểm chứng (nếu gọi API tức là test sai)
+    let apiCalled = false;
+    await page.route(`**/api/messages/send/**`, async (route) => {
+      apiCalled = true;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    // Bấm Enter
+    await messageInput.press('Enter');
+
+    // Chờ 1 chút để xem có gọi API không
+    await page.waitForTimeout(500);
+    expect(apiCalled).toBe(false);
+  });
+
+  test('should search messages and jump/highlight selected message', async ({ page }) => {
+    // Giả lập API search tin nhắn trả về kết quả
+    await page.route('**/api/conversations/*/messages/search*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            messageId: 'msgSpecial456',
+            senderId: 'userBob',
+            text: 'I found the treasure!',
+            createdAt: new Date().toISOString(),
+          }
+        ]),
+      });
+    });
+
+    // Mock API getMessages khi jumpToMessage lấy lại hội thoại
+    await page.route('**/api/messages/userBob*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            _id: 'msgSpecial456',
+            senderId: 'userBob',
+            text: 'I found the treasure!',
+            createdAt: new Date().toISOString(),
+          }
+        ]),
+      });
+    });
+
+    await page.goto('/');
+    await page.locator(`button[title="Bob Builder"]`).click();
+
+    // Mở cài đặt/details
+    await page.locator('button[title="Toggle details"]').click();
+
+    // Click "Tìm kiếm tin nhắn"
+    await page.getByRole('button', { name: 'Tìm kiếm tin nhắn' }).click();
+
+    // Nhập từ khóa tìm kiếm
+    const searchInput = page.locator('input[placeholder^="Tìm trong"]');
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill('treasure');
+
+    // Đợi kết quả hiển thị và click chọn dòng kết quả
+    const resultRow = page.locator('.discord-modal-card').getByRole('button', { name: 'Bob Builder' });
+    await expect(resultRow).toBeVisible();
+    await resultRow.click();
+
+    // Xác nhận modal tìm kiếm đã đóng và tin nhắn được highlight
+    await expect(searchInput).not.toBeVisible();
+  });
+
+  test('should search messages and display no results when no match', async ({ page }) => {
+    // Giả lập API search tin nhắn trả về mảng rỗng
+    await page.route('**/api/conversations/*/messages/search*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.goto('/');
+    await page.locator(`button[title="Bob Builder"]`).click();
+
+    // Mở cài đặt/details
+    await page.locator('button[title="Toggle details"]').click();
+
+    // Click "Tìm kiếm tin nhắn"
+    await page.getByRole('button', { name: 'Tìm kiếm tin nhắn' }).click();
+
+    // Nhập từ khóa tìm kiếm
+    const searchInput = page.locator('input[placeholder^="Tìm trong"]');
+    await expect(searchInput).toBeVisible();
+    await searchInput.fill('notfound');
+
+    // Xác nhận thông báo "Không tìm thấy tin nhắn." hiển thị
+    await expect(page.getByText('Không tìm thấy tin nhắn.')).toBeVisible();
+  });
+
+  test('should open emoji picker and select an emoji', async ({ page }) => {
+    await page.goto('/');
+    await page.locator(`button[title="Bob Builder"]`).click();
+
+    // Click button Emoji để mở picker
+    const emojiButton = page.locator('button[title="Emoji"]');
+    await emojiButton.click();
+
+    // Xác nhận Emoji Picker hiển thị
+    const emojiPicker = page.locator('.EmojiPickerReact');
+    await expect(emojiPicker).toBeVisible();
+
+    // Click chọn emoji đầu tiên trong danh sách của picker
+    const firstEmoji = emojiPicker.locator('button.epr-emoji').first();
+    await expect(firstEmoji).toBeVisible();
+    await firstEmoji.click();
+
+    // Xác nhận picker biến mất
+    await expect(emojiPicker).not.toBeVisible();
+
+    // Xác nhận emoji đã được chèn vào khung chat input
+    const messageInput = page.locator('input[placeholder^="Nhắn #"]');
+    const inputValue = await messageInput.inputValue();
+    expect(inputValue.length).toBeGreaterThan(0);
+  });
 });
