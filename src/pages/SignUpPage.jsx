@@ -1,14 +1,14 @@
-import React from "react";
+import { Loader2, Mail, User } from "lucide-react";
 import { useState } from "react";
-import { useAuthStore } from "../store/useAuthStore";
-import { Eye, EyeOff, Loader2, Lock, Mail, User } from "lucide-react";
-import AuthImagePattern from "../components/AuthImagePattern";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import logoImg from "../assets/logo.png";
+import { AuthField } from "../components/auth/AuthField";
+import { AuthFooter } from "../components/auth/AuthFooter";
+import { AuthLayout } from "../components/auth/AuthLayout";
+import { AuthPasswordField } from "../components/auth/AuthPasswordField";
+import { useAuthStore } from "../store/useAuthStore";
 
 export const SignUpPage = () => {
-  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -60,128 +60,69 @@ export const SignUpPage = () => {
       /* toast in store */
     }
   };
+
   return (
-    <div className="min-h-screen bg-[var(--discord-app)] lg:grid lg:grid-cols-2">
-      <div className="flex items-center justify-center p-6 sm:p-12">
-        <div className="discord-card w-full max-w-md p-8">
-          <div className="text-center mb-8">
-            <div className="flex flex-col items-center gap-2 group">
-              <div className="flex size-14 items-center justify-center rounded-[18px] bg-primary/15 transition-colors group-hover:bg-primary/25">
-                <img src={logoImg} alt="RushCord logo" className="size-8 rounded-lg object-cover" />
-              </div>
-              <h1 className="text-2xl font-bold mt-2">Create Account</h1>
-              <p className="text-base-content/60">
-                Get started with your free account
-              </p>
-            </div>
-          </div>
+    <AuthLayout
+      title="Create Account"
+      subtitle="Get started with your free account"
+      patternTitle="Join our community"
+      patternSubtitle="Connect with friends, share moments, and stay in touch with your loved ones."
+    >
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <AuthField
+          label="Full Name"
+          type="text"
+          placeholder="John Doe"
+          icon={User}
+          value={formData.fullName}
+          onChange={(e) =>
+            setFormData({ ...formData, fullName: e.target.value })
+          }
+        />
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Full Name</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="size-5 text-base-content/40" />
-                </div>
-                <input
-                  type="text"
-                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
-                  placeholder="John Doe"
-                  value={formData.fullName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, fullName: e.target.value })
-                  }
-                />
-              </div>
-            </div>
+        <AuthField
+          label="Email"
+          type="email"
+          placeholder="you@example.com"
+          icon={Mail}
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+        />
 
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Email</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="size-5 text-base-content/40" />
-                </div>
-                <input
-                  type="email"
-                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
-                  placeholder="you@example.com"
-                  value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
-                />
-              </div>
-            </div>
+        <AuthPasswordField
+          label="Password"
+          value={formData.password}
+          onChange={(e) =>
+            setFormData({ ...formData, password: e.target.value })
+          }
+          hint="Use at least 8 characters with uppercase, lowercase, number, and symbol (Cognito)."
+        />
 
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Password</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="size-5 text-base-content/40" />
-                </div>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  className="input discord-input-reset h-12 w-full rounded-xl border border-white/10 bg-black/10 pl-10"
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
-                />
-                <button
-                  type="button"
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="size-5 text-base-content/40" />
-                  ) : (
-                    <Eye className="size-5 text-base-content/40" />
-                  )}
-                </button>
-              </div>
-              <p className="text-xs text-base-content/50 mt-1">
-                Use at least 8 characters with uppercase, lowercase, number, and symbol (Cognito).
-              </p>
-            </div>
+        <button
+          type="submit"
+          className="btn btn-primary h-12 w-full rounded-lg border-0"
+          disabled={isSigningUp}
+        >
+          {isSigningUp ? (
+            <>
+              <Loader2 className="size-5 animate-spin" />
+              Loading...
+            </>
+          ) : (
+            "Create Account"
+          )}
+        </button>
+      </form>
 
-            <button
-              type="submit"
-              className="btn btn-primary h-12 w-full rounded-lg border-0"
-              disabled={isSigningUp}
-            >
-              {isSigningUp ? (
-                <>
-                  <Loader2 className="size-5 animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                "Create Account"
-              )}
-            </button>
-          </form>
-
-          <div className="text-center">
-            <p className="text-base-content/60">
-              Already have an account?{" "}
-              <Link to="/login" className="link link-primary">
-                Sign in
-              </Link>
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <AuthImagePattern
-        title="Join our community"
-        subtitle="Connect with friends, share moments, and stay in touch with your loved ones."
+      <AuthFooter
+        lines={[
+          {
+            text: "Already have an account?",
+            linkTo: "/login",
+            linkLabel: "Sign in",
+          },
+        ]}
       />
-    </div>
+    </AuthLayout>
   );
 };

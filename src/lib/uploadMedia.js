@@ -3,7 +3,7 @@ import { apiBaseURL, getAccessToken } from "./axios.js";
 /**
  * Request presigned PUT, upload file directly to S3, return stable public URL.
  * @param {File} file
- * @param {"avatar" | "message"} purpose
+ * @param {"avatar" | "cover" | "message"} purpose
  */
 export async function uploadFileViaPresign(file, purpose) {
   const token = getAccessToken();

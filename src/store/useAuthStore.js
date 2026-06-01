@@ -23,7 +23,12 @@ export const useAuthStore = create((set, get) => ({
   isSigningUp: false,
   isConfirming: false,
   isLoggingIn: false,
+  isRequestingReset: false,
+  isResettingPassword: false,
   isUpdatingProfile: false,
+  isChangingPassword: false,
+  isRequestingEmailChange: false,
+  isConfirmingEmailChange: false,
   isCheckingAuth: true,
   onlineUsers: [],
   incomingCall: null,
@@ -95,6 +100,42 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
+  forgotPassword: async ({ email }) => {
+    set({ isRequestingReset: true });
+    try {
+      await axiosInstance.post("/auth/forgot-password", { email });
+      toast.success(
+        "If an account exists for this email, we sent a reset link"
+      );
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Could not send reset link";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isRequestingReset: false });
+    }
+  },
+
+  resetPassword: async ({ email, otpCode, newPassword }) => {
+    set({ isResettingPassword: true });
+    try {
+      await axiosInstance.post("/auth/reset-password", {
+        email,
+        otpCode,
+        newPassword,
+      });
+      toast.success("Password updated. You can sign in now.");
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Could not reset password";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isResettingPassword: false });
+    }
+  },
+
   login: async (data) => {
     set({ isLoggingIn: true });
     try {
@@ -105,9 +146,11 @@ export const useAuthStore = create((set, get) => ({
       set({ authUser: checkRes.data });
       toast.success("Logged in successfully");
       get().connectSocket();
+      return true;
     } catch (error) {
       const msg = error.response?.data?.message || "Login failed";
       toast.error(msg);
+      return false;
     } finally {
       set({ isLoggingIn: false });
     }
@@ -134,16 +177,72 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
+  requestEmailChange: async ({ newEmail, password }) => {
+    set({ isRequestingEmailChange: true });
+    try {
+      await axiosInstance.post("/auth/request-email-change", {
+        newEmail,
+        password,
+      });
+      toast.success("Đã gửi link xác nhận tới email hiện tại của bạn");
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Không thể gửi yêu cầu đổi email";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isRequestingEmailChange: false });
+    }
+  },
+
+  confirmEmailChange: async ({ token }) => {
+    set({ isConfirmingEmailChange: true });
+    try {
+      const res = await axiosInstance.post("/auth/confirm-email-change", {
+        token,
+      });
+      toast.success("Email đã được cập nhật");
+      return res.data;
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Không thể xác nhận đổi email";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isConfirmingEmailChange: false });
+    }
+  },
+
+  changePassword: async ({ currentPassword, newPassword }) => {
+    set({ isChangingPassword: true });
+    try {
+      await axiosInstance.post("/auth/change-password", {
+        currentPassword,
+        newPassword,
+      });
+      toast.success("Đã đổi mật khẩu thành công");
+    } catch (error) {
+      const msg =
+        error.response?.data?.message || "Không thể đổi mật khẩu";
+      toast.error(msg);
+      throw error;
+    } finally {
+      set({ isChangingPassword: false });
+    }
+  },
+
   updateProfile: async (data) => {
     set({ isUpdatingProfile: true });
     try {
       const res = await axiosInstance.put("/auth/update-profile", data);
       set({ authUser: res.data });
       toast.success("Profile updated successfully");
+      return true;
     } catch (error) {
       console.log("error in update profile:", error);
       const msg = error.response?.data?.message || "Update failed";
       toast.error(msg);
+      return false;
     } finally {
       set({ isUpdatingProfile: false });
     }
@@ -209,6 +308,16 @@ export const useAuthStore = create((set, get) => ({
 
     socket.on("connect", () => {
       console.log("🔌 Socket connected:", socket.id);
+      try {
+        const conv = useChatStore.getState().selectedConversation;
+        if (conv?.conversationId) {
+          socket.emit("joinConversation", {
+            conversationId: conv.conversationId,
+          });
+        }
+      } catch {
+        // ignore
+      }
     });
 
     socket.on("disconnect", () => {

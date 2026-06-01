@@ -13,6 +13,31 @@ export const useChatStore = create((set, get) => ({
   incomingFriendRequests: [],
   outgoingFriendRequests: [],
   selectedConversation: null, // { conversationId, type, title, otherUserId, ... }
+  /** Rail trái: 'dms' = sidebar chỉ danh sách 1-1; 'group' = sidebar chỉ kênh nhóm đang chọn */
+  sidebarRailMode: "dms",
+  /** Panel chính trên Home: 'chat' | 'friends' | 'discover' */
+  homeMainView: "chat",
+  setHomeMainView: (view) => set({ homeMainView: view }),
+  openFriendsView: () => set({ homeMainView: "friends" }),
+  channels: [], // GROUP channels from API
+  selectedChannel: null, // { channelId, channelType, name } — text channel for messages
+  selectedVoiceChannelId: null, // VOICE channel id for group calls
+  /** Active group voice session: join by clicking a VOICE channel */
+  voiceSession: null, // { conversationId, voiceChannelId, roomName } | null
+  voiceMicMuted: false,
+  voiceOutputMuted: false,
+  voiceVideoEnabled: false,
+  voiceScreenShareEnabled: false,
+  /** Increment to signal GroupVideoCall to disconnect (sidebar leave button) */
+  voiceEndSignal: 0,
+  /** LiveKit roomName -> sorted userId[] (sidebar under voice channels) */
+  voiceMembersByRoom: {},
+  /** GROUP main panel: 'chat' = messages, 'voice' = camera grid */
+  groupPanelView: "chat",
+  /** Voice channel id currently shown in the main panel */
+  viewingVoiceChannelId: null,
+  /** True while a 1:1 LiveKit call is active (sidebar mic/headphone controls) */
+  dmCallActive: false,
   recentConversations: loadRecentConversations(),
   isTyping: false,
   typingFromUserId: null,
@@ -23,8 +48,11 @@ export const useChatStore = create((set, get) => ({
   isConversationsLoading: false,
   isFriendsLoading: false,
   isFriendRequestsLoading: false,
+  isCreatingGroup: false,
   aiMode: false,
   isAiBusy: false,
+  highlightMessageId: null,
+  pendingScrollMessageId: null,
 
   // =========================
   // FRIENDS
@@ -112,18 +140,34 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  removeFriend: async (otherUserId) => {
+    try {
+      await axiosInstance.delete(`/friends/${otherUserId}`);
+      toast.success("Friend removed");
+      await Promise.all([get().getFriends(), get().getFriendRequests()]);
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Remove friend failed";
+      toast.error(msg);
+      throw error;
+    }
+  },
+
   // =========================
   // GET USERS
   // =========================
   getUsers: async () => {
-    set({ isUsersLoading: true });
+    const showLoading = (get().users || []).length === 0;
+    if (showLoading) set({ isUsersLoading: true });
     try {
       const res = await axiosInstance.get("/messages/users");
       set({ users: res.data });
     } catch (error) {
       toast.error(error.response?.data?.message || "Error");
     } finally {
-      set({ isUsersLoading: false });
+      if (showLoading) set({ isUsersLoading: false });
     }
   },
 
@@ -142,13 +186,653 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  exploreGroups: async ({ q = "", topic = "", limit = 40 } = {}) => {
+    try {
+      const res = await axiosInstance.get("/conversations/explore", {
+        params: {
+          ...(q ? { q } : {}),
+          ...(topic ? { topic } : {}),
+          limit,
+        },
+      });
+      return Array.isArray(res.data) ? res.data : [];
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Không tải được danh sách nhóm";
+      toast.error(msg);
+      return [];
+    }
+  },
+
+  fetchGroupExplorePreview: async (conversationId, { silent = false } = {}) => {
+    const cid = String(conversationId || "").trim();
+    if (!cid) return null;
+    try {
+      const res = await axiosInstance.get(
+        `/conversations/explore/${encodeURIComponent(cid)}/preview`,
+      );
+      return res.data;
+    } catch (error) {
+      if (!silent) {
+        const msg =
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Không tải được thông tin nhóm";
+        toast.error(msg);
+      }
+      return null;
+    }
+  },
+
+  fetchInvitePreview: async (code, { silent = false } = {}) => {
+    const c = String(code || "").trim();
+    if (!c) return null;
+    try {
+      const res = await axiosInstance.get(
+        `/invites/${encodeURIComponent(c)}/preview`,
+      );
+      return res.data;
+    } catch (error) {
+      if (!silent) {
+        const msg =
+          error.response?.data?.error ||
+          error.response?.data?.message ||
+          "Không tải được lời mời";
+        toast.error(msg);
+      }
+      return null;
+    }
+  },
+
+  acceptInvite: async (code) => {
+    const c = String(code || "").trim();
+    if (!c) return null;
+    try {
+      const res = await axiosInstance.post(
+        `/invites/${encodeURIComponent(c)}/join`,
+      );
+      const data = res.data;
+      const cid = String(data.conversationId || "");
+      await get().getConversations();
+      const conv = (get().conversations || []).find(
+        (x) => String(x.conversationId) === cid,
+      );
+      const conversation = conv || {
+        conversationId: cid,
+        type: "GROUP",
+        title: data.title,
+        topic: data.topic || "",
+        description: data.description || "",
+        avatar: data.avatar || "",
+        cover: data.cover || "",
+        joinPolicy: data.joinPolicy || "OPEN",
+      };
+      get().setSelectedConversation(conversation);
+      toast.success(
+        data.alreadyMember ? "Bạn đã là thành viên nhóm" : "Đã tham gia nhóm",
+      );
+      return conversation;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Tham gia nhóm thất bại";
+      toast.error(msg);
+      return null;
+    }
+  },
+
+  listGroupInvites: async (conversationId) => {
+    const cid = String(conversationId || "");
+    if (!cid.startsWith("GROUP#")) return [];
+    try {
+      const res = await axiosInstance.get(
+        `/conversations/${encodeURIComponent(cid)}/invites`,
+      );
+      return Array.isArray(res.data) ? res.data : [];
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Không tải được lời mời";
+      toast.error(msg);
+      return [];
+    }
+  },
+
+  createGroupInvite: async (
+    conversationId,
+    { expiresInHours, expiresAt, maxUses } = {},
+  ) => {
+    const cid = String(conversationId || "");
+    if (!cid.startsWith("GROUP#")) return null;
+    try {
+      const res = await axiosInstance.post(
+        `/conversations/${encodeURIComponent(cid)}/invites`,
+        {
+          ...(expiresInHours != null ? { expiresInHours } : {}),
+          ...(expiresAt != null && expiresAt !== ""
+            ? { expiresAt }
+            : {}),
+          ...(maxUses != null && maxUses !== "" ? { maxUses } : {}),
+        },
+      );
+      toast.success("Đã tạo lời mời");
+      return res.data;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Tạo lời mời thất bại";
+      toast.error(msg);
+      return null;
+    }
+  },
+
+  revokeGroupInvite: async (conversationId, inviteId) => {
+    const cid = String(conversationId || "");
+    const iid = String(inviteId || "");
+    if (!cid.startsWith("GROUP#") || !iid) return false;
+    try {
+      await axiosInstance.delete(
+        `/conversations/${encodeURIComponent(cid)}/invites/${encodeURIComponent(iid)}`,
+      );
+      toast.success("Đã thu hồi lời mời");
+      return true;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Thu hồi lời mời thất bại";
+      toast.error(msg);
+      return false;
+    }
+  },
+
+  updateGroupJoinPolicy: async (conversationId, joinPolicy) => {
+    const cid = String(conversationId || "");
+    if (!cid.startsWith("GROUP#")) return null;
+    try {
+      const res = await axiosInstance.patch(
+        `/conversations/${encodeURIComponent(cid)}`,
+        { joinPolicy },
+      );
+      await get().getConversations();
+      const selected = get().selectedConversation;
+      if (selected && String(selected.conversationId) === cid) {
+        get().setSelectedConversation({
+          ...selected,
+          joinPolicy: res.data.joinPolicy || joinPolicy,
+        });
+      }
+      toast.success("Đã cập nhật chế độ tham gia");
+      return res.data;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Cập nhật thất bại";
+      toast.error(msg);
+      return null;
+    }
+  },
+
+  joinGroupConversation: async (conversationId) => {
+    const cid = String(conversationId || "");
+    if (!cid.startsWith("GROUP#")) return null;
+    try {
+      await axiosInstance.post(
+        `/conversations/${encodeURIComponent(cid)}/join`,
+      );
+      await get().getConversations();
+      const conv = (get().conversations || []).find(
+        (c) => String(c.conversationId) === cid,
+      );
+      const conversation = conv || {
+        conversationId: cid,
+        type: "GROUP",
+      };
+      get().setSelectedConversation(conversation);
+      toast.success("Đã tham gia nhóm");
+      return conversation;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Tham gia nhóm thất bại";
+      toast.error(msg);
+      return null;
+    }
+  },
+
+  createGroupConversation: async ({
+    title,
+    memberIds,
+    topic,
+    description,
+    avatar,
+    cover,
+  }) => {
+    set({ isCreatingGroup: true });
+    try {
+      const res = await axiosInstance.post("/conversations", {
+        title,
+        memberIds,
+        topic,
+        description,
+        ...(avatar ? { avatar } : {}),
+        ...(cover ? { cover } : {}),
+      });
+      await get().getConversations();
+      const conversation = {
+        conversationId: res.data.conversationId,
+        type: res.data.type || "GROUP",
+        title: res.data.title,
+        topic: res.data.topic || "",
+        description: res.data.description || "",
+        avatar: res.data.avatar || "",
+        cover: res.data.cover || "",
+      };
+      get().setSelectedConversation(conversation);
+      toast.success("Đã tạo nhóm");
+      return conversation;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Tạo nhóm thất bại";
+      toast.error(msg);
+      return null;
+    } finally {
+      set({ isCreatingGroup: false });
+    }
+  },
+
+  getChannels: async (conversationId) => {
+    const cid = String(conversationId || "");
+    if (!cid.startsWith("GROUP#")) {
+      set({
+        channels: [],
+        selectedChannel: null,
+        selectedVoiceChannelId: null,
+        voiceSession: null,
+      });
+      return;
+    }
+    try {
+      const res = await axiosInstance.get(
+        `/conversations/${encodeURIComponent(cid)}/channels`,
+      );
+      const channels = Array.isArray(res.data) ? res.data : [];
+      set({ channels });
+      const firstVoice = channels.find((c) => c.channelType === "VOICE");
+      set((s) => ({
+        selectedVoiceChannelId: s.selectedVoiceChannelId || firstVoice?.channelId || null,
+      }));
+      get().requestVoicePresence(cid);
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Error";
+      toast.error(msg);
+      set({ channels: [] });
+    }
+  },
+
+  setSelectedChannel: (ch) => {
+    set({ selectedChannel: ch, groupPanelView: "chat" });
+  },
+
+  showVoicePanel: (voiceChannelId) => {
+    const vid = String(voiceChannelId || "").trim();
+    if (!vid) return;
+    set({
+      groupPanelView: "voice",
+      viewingVoiceChannelId: vid,
+      selectedVoiceChannelId: vid,
+    });
+  },
+
+  setSelectedVoiceChannelId: (id) => {
+    set({ selectedVoiceChannelId: id ? String(id) : null });
+  },
+
+  joinVoiceChannel: (conversationId, voiceChannelId) => {
+    const cid = String(conversationId || "").trim();
+    const vid = String(voiceChannelId || "").trim();
+    if (!cid.startsWith("GROUP#") || !vid) return;
+    const roomName = `${cid}#VOICE#${vid}`;
+
+    const prev = get().voiceSession;
+    const socket = useAuthStore.getState().socket;
+    if (
+      socket &&
+      prev &&
+      (String(prev.conversationId) !== cid ||
+        String(prev.voiceChannelId) !== vid)
+    ) {
+      socket.emit("voiceChannelLeave", {
+        conversationId: prev.conversationId,
+        voiceChannelId: prev.voiceChannelId,
+        roomName: prev.roomName,
+      });
+    }
+
+    set({
+      selectedVoiceChannelId: vid,
+      groupPanelView: "voice",
+      viewingVoiceChannelId: vid,
+      voiceSession: { conversationId: cid, voiceChannelId: vid, roomName },
+      voiceMicMuted: false,
+      voiceOutputMuted: false,
+      voiceVideoEnabled: false,
+      voiceScreenShareEnabled: false,
+    });
+
+    if (socket) {
+      socket.emit("voiceChannelJoin", {
+        conversationId: cid,
+        voiceChannelId: vid,
+        roomName,
+      });
+    }
+  },
+
+  leaveVoiceChannel: () => {
+    const session = get().voiceSession;
+    const socket = useAuthStore.getState().socket;
+    if (socket && session) {
+      socket.emit("voiceChannelLeave", {
+        conversationId: session.conversationId,
+        voiceChannelId: session.voiceChannelId,
+        roomName: session.roomName,
+      });
+    }
+    set({
+      voiceSession: null,
+      voiceMicMuted: false,
+      voiceOutputMuted: false,
+      voiceVideoEnabled: false,
+      voiceScreenShareEnabled: false,
+      voiceEndSignal: 0,
+      groupPanelView: "chat",
+      viewingVoiceChannelId: null,
+    });
+  },
+
+  setVoiceChannelPresence: ({ roomName, members }) => {
+    const rn = String(roomName || "").trim();
+    if (!rn) return;
+    const list = Array.isArray(members)
+      ? [...new Set(members.map((id) => String(id)).filter(Boolean))].sort()
+      : [];
+    set((s) => ({
+      voiceMembersByRoom: { ...s.voiceMembersByRoom, [rn]: list },
+    }));
+  },
+
+  setVoicePresenceSnapshot: ({ conversationId, rooms }) => {
+    const cid = String(conversationId || "").trim();
+    if (!cid.startsWith("GROUP#")) return;
+    const prefix = `${cid}#VOICE#`;
+    set((s) => {
+      const next = { ...s.voiceMembersByRoom };
+      for (const key of Object.keys(next)) {
+        if (key.startsWith(prefix)) delete next[key];
+      }
+      const map = rooms && typeof rooms === "object" ? rooms : {};
+      for (const [roomName, members] of Object.entries(map)) {
+        const rn = String(roomName || "").trim();
+        if (!rn.startsWith(prefix)) continue;
+        next[rn] = Array.isArray(members)
+          ? [...new Set(members.map((id) => String(id)).filter(Boolean))].sort()
+          : [];
+      }
+      return { voiceMembersByRoom: next };
+    });
+  },
+
+  requestVoicePresence: (conversationId) => {
+    const cid = String(conversationId || "").trim();
+    if (!cid.startsWith("GROUP#")) return;
+    const socket = useAuthStore.getState().socket;
+    if (socket) socket.emit("requestVoicePresence", { conversationId: cid });
+  },
+
+  toggleVoiceMic: () => {
+    set((s) => ({ voiceMicMuted: !s.voiceMicMuted }));
+  },
+
+  toggleVoiceOutput: () => {
+    set((s) => ({ voiceOutputMuted: !s.voiceOutputMuted }));
+  },
+
+  toggleVoiceVideo: () => {
+    set((s) => ({ voiceVideoEnabled: !s.voiceVideoEnabled }));
+  },
+
+  toggleVoiceScreenShare: () => {
+    set((s) => ({ voiceScreenShareEnabled: !s.voiceScreenShareEnabled }));
+  },
+
+  setVoiceScreenShareEnabled: (enabled) => {
+    set({ voiceScreenShareEnabled: Boolean(enabled) });
+  },
+
+  requestLeaveVoice: () => {
+    set((s) => ({ voiceEndSignal: (s.voiceEndSignal || 0) + 1 }));
+  },
+
+  setDmCallActive: (active) => {
+    set({
+      dmCallActive: Boolean(active),
+      ...(!active ? { voiceMicMuted: false, voiceOutputMuted: false } : {}),
+    });
+  },
+
+  openGroupAtChannel: async (conversation, channel) => {
+    const cid = conversation?.conversationId;
+    if (!cid || !String(cid).startsWith("GROUP#") || !channel?.channelId) return;
+    get().setSelectedConversation(conversation);
+    await get().getChannels(cid);
+    const ch = get().channels.find(
+      (c) => String(c.channelId) === String(channel.channelId),
+    );
+    if (!ch) return;
+    if (ch.channelType === "VOICE") {
+      get().joinVoiceChannel(cid, ch.channelId);
+    } else {
+      get().setSelectedChannel(ch);
+    }
+  },
+
+  createChannel: async ({ channelType, name }) => {
+    const { selectedConversation } = get();
+    const cid = selectedConversation?.conversationId;
+    if (!cid || !String(cid).startsWith("GROUP#")) return false;
+    try {
+      await axiosInstance.post(`/conversations/${encodeURIComponent(cid)}/channels`, {
+        channelType,
+        name,
+      });
+      toast.success("Đã tạo kênh");
+      await get().getChannels(cid);
+      return true;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Tạo kênh thất bại";
+      toast.error(msg);
+      return false;
+    }
+  },
+
+  updateChannelName: async ({ channelId, name }) => {
+    const { selectedConversation } = get();
+    const cid = selectedConversation?.conversationId;
+    if (!cid) return false;
+    const trimmed = String(name || "").trim();
+    if (!trimmed) return false;
+    try {
+      await axiosInstance.patch(
+        `/conversations/${encodeURIComponent(cid)}/channels/${encodeURIComponent(channelId)}`,
+        { name: trimmed },
+      );
+      toast.success("Đã đổi tên kênh");
+      set((s) => {
+        const id = String(channelId);
+        const nextChannels = (s.channels || []).map((c) =>
+          String(c.channelId) === id ? { ...c, name: trimmed } : c,
+        );
+        const nextSelected =
+          s.selectedChannel && String(s.selectedChannel.channelId) === id
+            ? { ...s.selectedChannel, name: trimmed }
+            : s.selectedChannel;
+        return { channels: nextChannels, selectedChannel: nextSelected };
+      });
+      await get().getChannels(cid);
+      return true;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Cập nhật thất bại";
+      toast.error(msg);
+      return false;
+    }
+  },
+
+  deleteChannel: async (channelId) => {
+    const { selectedConversation } = get();
+    const cid = selectedConversation?.conversationId;
+    if (!cid) return false;
+    const deletedId = String(channelId);
+    const prev = get();
+    try {
+      await axiosInstance.delete(
+        `/conversations/${encodeURIComponent(cid)}/channels/${encodeURIComponent(channelId)}`,
+      );
+      toast.success("Đã xóa kênh");
+      if (String(prev.voiceSession?.voiceChannelId) === deletedId) {
+        get().leaveVoiceChannel();
+      }
+      await get().getChannels(cid);
+      const channels = get().channels || [];
+      const updates = {};
+      if (
+        prev.selectedChannel &&
+        String(prev.selectedChannel.channelId) === deletedId
+      ) {
+        const type = prev.selectedChannel.channelType;
+        const sameType = channels.filter((c) => c.channelType === type);
+        updates.selectedChannel =
+          sameType[0] || channels.find((c) => c.channelType === "CHAT") || null;
+        updates.messages = [];
+      }
+      if (String(prev.selectedVoiceChannelId) === deletedId) {
+        const firstVoice = channels.find((c) => c.channelType === "VOICE");
+        updates.selectedVoiceChannelId = firstVoice?.channelId || null;
+      }
+      if (
+        String(prev.viewingVoiceChannelId) === deletedId &&
+        !prev.voiceSession
+      ) {
+        const firstVoice = channels.find((c) => c.channelType === "VOICE");
+        if (prev.groupPanelView === "voice") {
+          if (firstVoice) {
+            updates.viewingVoiceChannelId = firstVoice.channelId;
+            updates.selectedVoiceChannelId = firstVoice.channelId;
+          } else {
+            updates.viewingVoiceChannelId = null;
+            updates.groupPanelView = "chat";
+          }
+        } else {
+          updates.viewingVoiceChannelId = null;
+        }
+      }
+      if (Object.keys(updates).length > 0) set(updates);
+      return true;
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Xóa kênh thất bại";
+      toast.error(msg);
+      return false;
+    }
+  },
+
+  clearMessageSearchHighlight: () => {
+    set({ highlightMessageId: null, pendingScrollMessageId: null });
+  },
+
+  searchMessages: async (conversationId, query) => {
+    const q = String(query || "").trim();
+    if (q.length < 2) return [];
+    try {
+      const res = await axiosInstance.get(
+        `/conversations/${encodeURIComponent(String(conversationId || ""))}/messages/search`,
+        { params: { q, limit: 30 } },
+      );
+      return Array.isArray(res.data) ? res.data : [];
+    } catch (error) {
+      const msg =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Tìm kiếm thất bại";
+      toast.error(msg);
+      return [];
+    }
+  },
+
+  jumpToMessage: async ({ messageId, channelId }) => {
+    const mid = String(messageId || "").trim();
+    const { selectedConversation, selectedChannel } = get();
+    if (!mid || !selectedConversation?.conversationId) return;
+
+    const cid = selectedConversation.conversationId;
+    const isGroup = selectedConversation.type === "GROUP";
+
+    if (isGroup && channelId) {
+      const chId = String(channelId);
+      const currentCh = String(selectedChannel?.channelId || "");
+      if (chId !== currentCh) {
+        let ch = (get().channels || []).find((c) => String(c.channelId) === chId);
+        if (!ch) {
+          await get().getChannels(cid);
+          ch = (get().channels || []).find((c) => String(c.channelId) === chId);
+        }
+        if (!ch) {
+          toast.error("Không tìm thấy kênh");
+          return;
+        }
+        if (ch.channelType === "VOICE") {
+          toast.error("Không thể mở tin nhắn trong kênh thoại");
+          return;
+        }
+        get().setSelectedChannel(ch);
+      }
+    }
+
+    set({
+      pendingScrollMessageId: mid,
+      highlightMessageId: mid,
+    });
+
+    await get().getMessages(cid);
+  },
+
   // =========================
   // GET MESSAGES (conversation)
   // =========================
   getMessages: async (conversationId) => {
     set({ isMessagesLoading: true });
     try {
-      const { selectedConversation } = get();
+      const { selectedConversation, selectedChannel } = get();
       const isDm = selectedConversation?.type === "DM" && selectedConversation?.otherUserId;
 
       const res = isDm
@@ -156,7 +840,9 @@ export const useChatStore = create((set, get) => ({
             `/messages/${encodeURIComponent(String(selectedConversation.otherUserId))}`,
           )
         : await axiosInstance.get(
-            `/conversations/${encodeURIComponent(String(conversationId || ""))}/messages`,
+            `/conversations/${encodeURIComponent(String(conversationId || ""))}/channels/${encodeURIComponent(
+              String(selectedChannel?.channelId || ""),
+            )}/messages`,
           );
 
       set({ messages: res.data || [] });
@@ -175,10 +861,18 @@ export const useChatStore = create((set, get) => ({
   // SEND MESSAGE (conversation)
   // =========================
   sendMessage: async ({ text = "", file = null, files = null }) => {
-    const { selectedConversation, messages } = get();
+    const { selectedConversation, messages, selectedChannel } = get();
 
     if (!selectedConversation?.conversationId) {
       toast.error("No conversation selected");
+      return;
+    }
+
+    if (
+      selectedConversation.type === "GROUP" &&
+      (!selectedChannel?.channelId || selectedChannel.channelType === "VOICE")
+    ) {
+      toast.error("Chọn kênh chat hoặc kênh thông tin để nhắn tin");
       return;
     }
 
@@ -235,7 +929,7 @@ export const useChatStore = create((set, get) => ({
         : await axiosInstance.post(
             `/conversations/${encodeURIComponent(
               String(selectedConversation.conversationId),
-            )}/messages`,
+            )}/channels/${encodeURIComponent(String(selectedChannel?.channelId || ""))}/messages`,
             body,
           );
 
@@ -547,6 +1241,16 @@ export const useChatStore = create((set, get) => ({
         )
           return state;
 
+        if (state.selectedConversation.type === "GROUP") {
+          const activeCh = state.selectedChannel?.channelId;
+          if (
+            activeCh &&
+            String(newMessage.channelId || "") !== String(activeCh)
+          ) {
+            return state;
+          }
+        }
+
         // Once a message arrives, clear "typing" indicator for this chat.
         if (state._typingTimer) clearTimeout(state._typingTimer);
         state = {
@@ -563,13 +1267,27 @@ export const useChatStore = create((set, get) => ({
       });
     });
 
+    socket.off("voiceChannelPresence");
+    socket.on("voiceChannelPresence", ({ roomName, members } = {}) => {
+      get().setVoiceChannelPresence({ roomName, members });
+    });
+
+    socket.off("voicePresenceSnapshot");
+    socket.on("voicePresenceSnapshot", ({ conversationId, rooms } = {}) => {
+      get().setVoicePresenceSnapshot({ conversationId, rooms });
+    });
+
     // TYPING (conversation rooms)
     socket.off("typingInConversation");
-    socket.on("typingInConversation", ({ from, conversationId } = {}) => {
+    socket.on("typingInConversation", ({ from, conversationId, channelId } = {}) => {
       set((state) => {
         if (!state.selectedConversation?.conversationId) return state;
         if (String(conversationId) !== String(state.selectedConversation.conversationId))
           return state;
+        if (state.selectedConversation.type === "GROUP") {
+          const ac = state.selectedChannel?.channelId;
+          if (ac && String(channelId || "") !== String(ac)) return state;
+        }
         if (String(from) === String(useAuthStore.getState().authUser?._id))
           return state;
         if (state._typingTimer) clearTimeout(state._typingTimer);
@@ -581,11 +1299,15 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.off("stopTypingInConversation");
-    socket.on("stopTypingInConversation", ({ from, conversationId } = {}) => {
+    socket.on("stopTypingInConversation", ({ from, conversationId, channelId } = {}) => {
       set((state) => {
         if (!state.selectedConversation?.conversationId) return state;
         if (String(conversationId) !== String(state.selectedConversation.conversationId))
           return state;
+        if (state.selectedConversation.type === "GROUP") {
+          const ac = state.selectedChannel?.channelId;
+          if (ac && String(channelId || "") !== String(ac)) return state;
+        }
         if (String(from) === String(useAuthStore.getState().authUser?._id))
           return state;
         if (state._typingTimer) clearTimeout(state._typingTimer);
@@ -655,20 +1377,77 @@ export const useChatStore = create((set, get) => ({
   // SELECT CONVERSATION
   // =========================
   setSelectedConversation: (selectedConversation) => {
+    const prev = get().selectedConversation;
+    const prevChannel = get().selectedChannel;
     const t = get()._typingTimer;
     if (t) clearTimeout(t);
-    set({ selectedConversation, isTyping: false, typingFromUserId: null, _typingTimer: null });
 
-    // Socket room join/leave (best effort)
-    try {
-      const socket = useAuthStore.getState().socket;
-      if (socket && selectedConversation?.conversationId) {
-        socket.emit("joinConversation", {
-          conversationId: selectedConversation.conversationId,
-        });
+    const convChanged =
+      String(prev?.conversationId) !== String(selectedConversation?.conversationId);
+
+    const socket = useAuthStore.getState().socket;
+    if (convChanged) {
+      try {
+        if (socket && prev?.conversationId) {
+          if (
+            prevChannel?.channelId &&
+            String(prev.conversationId || "").startsWith("GROUP#")
+          ) {
+            socket.emit("leaveConversationChannel", {
+              conversationId: prev.conversationId,
+              channelId: prevChannel.channelId,
+            });
+          }
+          socket.emit("leaveConversation", { conversationId: prev.conversationId });
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+    }
+
+    const nextRailMode =
+      selectedConversation?.type === "GROUP" ? "group" : "dms";
+
+    set({
+      selectedConversation,
+      sidebarRailMode: nextRailMode,
+      ...(selectedConversation ? { homeMainView: "chat" } : {}),
+      ...(convChanged
+        ? {
+            channels: [],
+            selectedChannel: null,
+            selectedVoiceChannelId: null,
+            voiceSession: null,
+            voiceMicMuted: false,
+            voiceOutputMuted: false,
+            voiceVideoEnabled: false,
+            voiceScreenShareEnabled: false,
+            voiceEndSignal: 0,
+            groupPanelView: "chat",
+            viewingVoiceChannelId: null,
+            messages: [],
+          }
+        : {}),
+      isTyping: false,
+      typingFromUserId: null,
+      _typingTimer: null,
+    });
+
+    if (convChanged) {
+      try {
+        if (socket && selectedConversation?.conversationId) {
+          socket.emit("joinConversation", {
+            conversationId: selectedConversation.conversationId,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    } else if (
+      selectedConversation?.type === "GROUP" &&
+      selectedConversation?.conversationId
+    ) {
+      get().requestVoicePresence(selectedConversation.conversationId);
     }
   },
 }));
