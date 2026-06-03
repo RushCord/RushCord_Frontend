@@ -628,9 +628,9 @@ const ChatContainer = () => {
   }, [isCalling, showVoicePanel]);
 
   // =========================
-  // LOADING
+  // LOADING (never unmount group voice — early return remounts GroupVideoCall)
   // =========================
-  if (isMessagesLoading) {
+  if (isMessagesLoading && !voiceSession) {
     return (
       <div className="flex-1 flex flex-col overflow-auto">
         <ChatHeader

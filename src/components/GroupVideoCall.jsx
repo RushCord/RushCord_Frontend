@@ -262,6 +262,7 @@ export default function GroupVideoCall({
   const _remoteSetRef = useRef(new Set());
   const _remoteElsRef = useRef(new Map()); // identity -> { cameraVideoEl, audioEl }
   const _activeStageIdentityRef = useRef(null);
+  const _lastPollIdsKeyRef = useRef("");
 
   const setRemoteEls = (identity, { cameraVideoEl, audioEl }) => {
     if (!identity) return;
@@ -574,6 +575,15 @@ export default function GroupVideoCall({
       if (_connectingRef.current) return;
       if (callStatus === "connected") return;
 
+      if (room.state === "connected") {
+        const initial = uniqIdentities(room);
+        _remoteSetRef.current = new Set(initial);
+        setRemoteIdentities(initial);
+        setCallStatus("connected");
+        syncMediaFlags();
+        return;
+      }
+
       _connectingRef.current = true;
       setError(null);
       setCallStatus("connecting");
@@ -764,20 +774,24 @@ export default function GroupVideoCall({
     };
   }, [room]);
 
-  // Poll participants periodically while connected (helps diagnose cases where events don't fire)
+  // Poll participants periodically while connected (only update React state when roster changes)
   useEffect(() => {
     if (callStatus !== "connected") return () => {};
     const t = setInterval(() => {
       const ids = uniqIdentities(room);
-      _remoteSetRef.current = new Set(ids);
-      setRemoteIdentities(ids);
-      syncMediaFlags();
+      const key = ids.join("\0");
+      if (key !== _lastPollIdsKeyRef.current) {
+        _lastPollIdsKeyRef.current = key;
+        _remoteSetRef.current = new Set(ids);
+        setRemoteIdentities(ids);
+        syncMediaFlags();
+      }
       setDebugInfo({
         room: String(room.name || roomName || ""),
         state: String(room.state || ""),
         remotes: Number(getRemoteParticipantsMap(room)?.size || ids.length || 0),
       });
-    }, 1000);
+    }, 3000);
     return () => clearInterval(t);
   }, [callStatus, room, roomName]);
 
