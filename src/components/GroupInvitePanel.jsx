@@ -203,7 +203,7 @@ export function GroupInvitePanel({
         <div className="space-y-2">
           <label className="text-[11px] text-base-content/60">Thời hạn</label>
           <select
-            className="select select-sm w-full rounded-lg border border-white/10 bg-black/20"
+            className="discord-select discord-select-sm w-full rounded-lg"
             value={expiryMode}
             onChange={(e) => setExpiryMode(e.target.value)}
           >
@@ -222,7 +222,7 @@ export function GroupInvitePanel({
                 onChange={(e) => setDurationValue(e.target.value)}
               />
               <select
-                className="select select-sm rounded-lg border border-white/10 bg-black/20"
+                className="discord-select discord-select-sm rounded-lg"
                 value={durationUnit}
                 onChange={(e) => setDurationUnit(e.target.value)}
               >

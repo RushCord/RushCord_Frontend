@@ -468,7 +468,7 @@ export const ProfilePage = () => {
                             <select
                               value={gender}
                               onChange={(e) => setGender(e.target.value)}
-                              className="w-full rounded-xl border border-white/10 bg-black/10 px-4 py-3 text-sm"
+                              className="discord-select w-full rounded-xl px-4 py-3 text-sm"
                             >
                               <option value="">Chưa chọn</option>
                               <option value="MALE">Nam</option>

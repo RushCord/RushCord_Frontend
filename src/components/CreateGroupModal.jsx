@@ -242,7 +242,7 @@ export default function CreateGroupModal({ open, onClose }) {
             </label>
             <select
               id="group-topic"
-              className="select discord-input-reset w-full rounded-xl border border-white/10 bg-black/10 px-4 py-2 text-sm"
+              className="discord-select w-full rounded-xl px-4 py-2 text-sm"
               value={topicId}
               onChange={(e) => setTopicId(e.target.value)}
               disabled={isCreatingGroup}

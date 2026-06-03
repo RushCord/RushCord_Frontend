@@ -1182,7 +1182,7 @@ export default function GroupVideoCall({
               <select
                 value={selectedCameraId}
                 onChange={(e) => switchCamera(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+                className="discord-select w-full rounded-lg px-3 py-2 text-sm"
               >
                 {cameras.length === 0 ? (
                   <option value="">No camera</option>
@@ -1201,7 +1201,7 @@ export default function GroupVideoCall({
               <select
                 value={selectedMicId}
                 onChange={(e) => switchMicrophone(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+                className="discord-select w-full rounded-lg px-3 py-2 text-sm"
               >
                 {microphones.length === 0 ? (
                   <option value="">No microphone</option>
@@ -1225,7 +1225,7 @@ export default function GroupVideoCall({
                   useMediaDeviceStore.getState().setSpeakerId(id);
                   applySpeaker(id);
                 }}
-                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+                className="discord-select w-full rounded-lg px-3 py-2 text-sm"
               >
                 {speakers.length === 0 ? (
                   <option value="">Default</option>

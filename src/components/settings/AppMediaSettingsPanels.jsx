@@ -3,8 +3,7 @@ import { isSinkIdSupported } from "../../lib/mediaDevices";
 import { useMediaDevicesList } from "../../hooks/useMediaDevicesList";
 import { useMediaDeviceStore } from "../../store/useMediaDeviceStore";
 
-const selectClass =
-  "w-full rounded-md border border-(--discord-border) bg-(--discord-sidebar) px-3 py-2 text-sm text-(--discord-text) outline-none focus:border-(--discord-accent)";
+const selectClass = "discord-select w-full rounded-md px-3 py-2 text-sm";
 
 function DeviceSelect({ label, hint, value, onChange, devices, emptyLabel }) {
   return (

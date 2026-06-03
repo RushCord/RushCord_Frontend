@@ -522,7 +522,7 @@ export default function VideoCall({
               <select
                 value={selectedCameraId}
                 onChange={(e) => switchCamera(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+                className="discord-select w-full rounded-lg px-3 py-2 text-sm"
               >
                 {cameras.length === 0 ? (
                   <option value="">No camera</option>
@@ -541,7 +541,7 @@ export default function VideoCall({
               <select
                 value={selectedMicId}
                 onChange={(e) => switchMicrophone(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+                className="discord-select w-full rounded-lg px-3 py-2 text-sm"
               >
                 {microphones.length === 0 ? (
                   <option value="">No microphone</option>
@@ -560,7 +560,7 @@ export default function VideoCall({
               <select
                 value={selectedSpeakerId}
                 onChange={(e) => setSelectedSpeakerId(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-[var(--discord-panel)] px-3 py-2 text-sm"
+                className="discord-select w-full rounded-lg px-3 py-2 text-sm"
               >
                 {speakers.length === 0 ? (
                   <option value="">Default</option>
