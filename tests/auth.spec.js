@@ -151,4 +151,200 @@ test.describe('Authentication Flow', () => {
     // Phải chuyển hướng đến trang xác nhận email confirm-email
     await expect(page).toHaveURL(/\/confirm-email/);
   });
+
+  test('should persist session after page reload', async ({ page }) => {
+    // Giả lập token trong localStorage
+    await page.addInitScript(() => {
+      window.localStorage.setItem('rushcord_access_token', 'fake_access_token');
+      window.localStorage.setItem('rushcord_refresh_token', 'fake_refresh_token');
+    });
+
+    // Giả lập checkAuth thành công
+    await page.route('**/api/auth/check', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          _id: 'user123',
+          email: 'test@example.com',
+          fullName: 'Test User',
+        }),
+      });
+    });
+
+    await page.goto('/');
+    // Vẫn ở trang chủ
+    await expect(page).toHaveURL('/');
+    
+    // Reload trang
+    await page.reload();
+    await expect(page).toHaveURL('/');
+  });
+
+  test('should clear tokens and redirect to login on logout', async ({ page }) => {
+    // Giả lập token và trạng thái đăng nhập
+    await page.addInitScript(() => {
+      window.localStorage.setItem('rushcord_access_token', 'fake_access_token');
+      window.localStorage.setItem('rushcord_refresh_token', 'fake_refresh_token');
+    });
+
+    await page.route('**/api/auth/check', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ _id: 'user123', fullName: 'Test User' }),
+      });
+    });
+
+    // Mock API logout
+    await page.route('**/api/auth/logout', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    });
+
+    // Mock các endpoint phụ trợ để tránh kẹt
+    await page.route('**/api/conversations', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await page.route('**/api/friends**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await page.route('**/api/messages/users', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+
+    await page.goto('/');
+
+    // Mở UserSettingsModal bằng cách click nút Cài đặt ở SidebarUserBar
+    await page.locator('button[title="Cài đặt"]').click();
+
+    // Click Đăng Xuất
+    await page.getByRole('button', { name: 'Đăng Xuất' }).click();
+
+    // Xác nhận đã chuyển hướng về trang login
+    await expect(page).toHaveURL(/\/login/);
+
+    // Xác nhận localStorage đã bị xóa sạch token
+    const token = await page.evaluate(() => window.localStorage.getItem('rushcord_access_token'));
+    expect(token).toBeNull();
+  });
+
+  test('should validate password complexity on signup', async ({ page }) => {
+    await page.route('**/api/auth/check', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Unauthorized' }),
+      });
+    });
+
+    // Mock API register báo lỗi độ phức tạp mật khẩu
+    await page.route('**/api/auth/register', async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Password must have uppercase, lowercase, numbers, and special characters' }),
+      });
+    });
+
+    await page.goto('/signup');
+
+    await page.getByPlaceholder('John Doe').fill('New User');
+    await page.getByPlaceholder('you@example.com').fill('new@example.com');
+    await page.getByPlaceholder('••••••••').fill('simplepassword');
+
+    await page.getByRole('button', { name: 'Create Account' }).click();
+    await expect(page.getByText('Password must have uppercase, lowercase, numbers, and special characters')).toBeVisible();
+  });
+
+  test('should validate forgot password flow with success', async ({ page }) => {
+    // Giả lập checkAuth trả về 401
+    await page.route('**/api/auth/check', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Unauthorized' }),
+      });
+    });
+
+    // Mock API forgot-password thành công
+    await page.route('**/api/auth/forgot-password', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Success' }),
+      });
+    });
+
+    await page.goto('/forgot-password');
+
+    await page.getByPlaceholder('you@example.com').fill('test@example.com');
+    await page.getByRole('button', { name: 'Send reset link' }).click();
+
+    // Check success toast
+    await expect(page.getByText('If an account exists for this email, we sent a reset link')).toBeVisible();
+  });
+
+  test('should validate forgot password flow with email not found error', async ({ page }) => {
+    await page.route('**/api/auth/check', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Unauthorized' }),
+      });
+    });
+
+    // Mock API forgot-password trả về lỗi 404
+    await page.route('**/api/auth/forgot-password', async (route) => {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Could not send reset link' }),
+      });
+    });
+
+    await page.goto('/forgot-password');
+
+    await page.getByPlaceholder('you@example.com').fill('nonexistent@example.com');
+    await page.getByRole('button', { name: 'Send reset link' }).click();
+
+    // Check error toast
+    await expect(page.getByText('Could not send reset link')).toBeVisible();
+  });
+
+  test('should validate reset password flow successfully', async ({ page }) => {
+    await page.route('**/api/auth/check', async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Unauthorized' }),
+      });
+    });
+
+    // Mock API reset-password thành công
+    await page.route('**/api/auth/reset-password', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'Success' }),
+      });
+    });
+
+    // Truy cập trực tiếp link Reset Password với search params hợp lệ
+    await page.goto('/reset-password?email=test@example.com&code=123456');
+
+    // Điền mật khẩu mới và xác nhận mật khẩu mới
+    const newPassField = page.locator('div:has-text("New password") > div > input').first();
+    const confirmPassField = page.locator('div:has-text("Confirm password") > div > input');
+
+    await newPassField.fill('NewPass123!');
+    await confirmPassField.fill('NewPass123!');
+
+    await page.getByRole('button', { name: 'Update password' }).click();
+
+    // Đợi toast thông báo thành công
+    await expect(page.getByText('Password updated. You can sign in now.')).toBeVisible();
+
+    // Chuyển hướng về login
+    await expect(page).toHaveURL(/\/login/);
+  });
 });

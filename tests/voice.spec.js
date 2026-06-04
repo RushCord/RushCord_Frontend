@@ -42,6 +42,34 @@ test.describe('Voice/Video Call Screen UI', () => {
       });
     });
 
+    // Giả lập danh sách bạn bè để tránh kẹt call thực tế
+    await page.route('**/api/friends', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    await page.route('**/api/friends/requests**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([]),
+      });
+    });
+
+    // Giả lập danh sách User trong hệ thống để tránh kẹt loading xương cá (skeleton) ở Sidebar
+    await page.route('**/api/messages/users', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { _id: 'userAlice', email: 'alice@example.com', fullName: 'Alice Watson', profilePic: '' }
+        ]),
+      });
+    });
+
     // Giả lập danh sách kênh trong nhóm
     await page.route(`**/api/conversations/${encodeURIComponent(conversationId)}/channels`, async (route) => {
       await route.fulfill({
@@ -119,5 +147,130 @@ test.describe('Voice/Video Call Screen UI', () => {
 
     // Xác nhận giao diện gọi video đã tắt (h1 biến mất)
     await expect(videoCallHeader).not.toBeVisible();
+  });
+
+  test('should allow toggling microphone, headphones, and camera during voice call', async ({ page }) => {
+    await page.goto('/');
+    const groupButton = page.locator(`button[title="Test Group"]`);
+    await groupButton.click();
+
+    const voiceChanButton = page.getByRole('button', { name: 'Voice channel' });
+    await expect(voiceChanButton).toBeVisible();
+    await voiceChanButton.click();
+
+    // Kiểm tra nút mic, tai nghe, camera ban đầu
+    const micButton = page.locator('button[title="Tắt mic"]');
+    const headButton = page.locator('button[title="Tắt tai nghe"]');
+    const camButton = page.locator('button[title="Bật camera"]');
+
+    await expect(micButton).toBeVisible();
+    await expect(headButton).toBeVisible();
+    await expect(camButton).toBeVisible();
+
+    // Click tắt mic -> chuyển thành "Bật mic"
+    await micButton.click();
+    await expect(page.locator('button[title="Bật mic"]')).toBeVisible();
+
+    // Click tắt tai nghe -> chuyển thành "Bật tai nghe"
+    await headButton.click();
+    await expect(page.locator('button[title="Bật tai nghe"]')).toBeVisible();
+
+    // Click bật camera -> chuyển thành "Tắt camera"
+    await camButton.click();
+    await expect(page.locator('button[title="Tắt camera"]')).toBeVisible();
+  });
+
+  test('should allow group owner to create, rename, and delete a channel', async ({ page }) => {
+    // Mock API tạo kênh
+    await page.route('**/api/conversations/*/channels', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Channel created' }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              channelId: 'chat_chan_123',
+              channelType: 'CHAT',
+              name: 'general',
+            },
+            {
+              channelId: voiceChannelId,
+              channelType: 'VOICE',
+              name: 'Voice channel',
+            },
+          ]),
+        });
+      }
+    });
+
+    // Mock API sửa tên kênh
+    await page.route('**/api/conversations/*/channels/*', async (route) => {
+      const method = route.request().method();
+      if (method === 'PATCH') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Channel renamed' }),
+        });
+      } else if (method === 'DELETE') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ message: 'Channel deleted' }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    await page.goto('/');
+    await page.locator(`button[title="Test Group"]`).click();
+
+    // --- 1. Tạo kênh mới ---
+    await page.locator('button[title="Thêm kênh thoại"]').click();
+    await page.locator('#channel-name-input').fill('kênh-thoại-mới');
+    await page.getByRole('button', { name: 'Tạo kênh' }).click();
+    await expect(page.getByText('Đã tạo kênh')).toBeVisible();
+
+    // --- 2. Đổi tên kênh (Right click) ---
+    const voiceChan = page.getByRole('button', { name: 'Voice channel' });
+    await voiceChan.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Chỉnh sửa' }).click();
+    await page.locator('#channel-name-input').fill('Voice channel edited');
+    await page.getByRole('button', { name: 'Lưu' }).click();
+    await expect(page.getByText('Đã đổi tên kênh')).toBeVisible();
+
+    // --- 3. Xóa kênh (Right click) ---
+    await voiceChan.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Xóa' }).click();
+    // Bấm nút Xóa trong modal confirm xóa
+    await page.locator('.discord-modal-card').getByRole('button', { name: 'Xóa' }).click();
+    await expect(page.getByText('Đã xóa kênh')).toBeVisible();
+  });
+
+  test('should prevent group owner from renaming voice channel to empty', async ({ page }) => {
+    await page.goto('/');
+    await page.locator(`button[title="Test Group"]`).click();
+
+    // Chuẩn bị mở modal edit kênh thoại
+    const voiceChan = page.getByRole('button', { name: 'Voice channel' });
+    await voiceChan.click({ button: 'right' });
+    await page.getByRole('button', { name: 'Chỉnh sửa' }).click();
+
+    const nameInput = page.locator('#channel-name-input');
+    await expect(nameInput).toBeVisible();
+
+    // Điền tên rỗng / toàn khoảng trắng
+    await nameInput.fill('   ');
+
+    // Xác nhận nút Lưu bị disabled
+    const saveBtn = page.getByRole('button', { name: 'Lưu' });
+    await expect(saveBtn).toBeDisabled();
   });
 });
