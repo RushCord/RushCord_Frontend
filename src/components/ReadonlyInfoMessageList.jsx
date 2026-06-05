@@ -1,11 +1,16 @@
 import { formatMessageTime } from "../lib/utils";
+import {
+  AI_BOT_SENDER_ID,
+  RUSHCORD_AI_AVATAR_URL,
+  RUSHCORD_AI_DISPLAY_NAME,
+} from "../lib/aiChatUtils";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
 
 function senderLabel(message, authUser, users) {
   const sid = String(message?.senderId || "");
   if (sid === String(authUser?._id || "")) return authUser?.fullName || "Bạn";
-  if (sid === "RushCordAI") return "RushCord AI";
+  if (sid === AI_BOT_SENDER_ID) return RUSHCORD_AI_DISPLAY_NAME;
   const u = users.find((x) => String(x._id) === sid);
   return u?.fullName || sid || "Người dùng";
 }
@@ -15,8 +20,8 @@ function senderAvatar(message, authUser, users) {
   if (sid === String(authUser?._id || "")) {
     return authUser?.profilePic || "/avatar.png";
   }
-  if (sid === "RushCordAI") {
-    return "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png";
+  if (sid === AI_BOT_SENDER_ID) {
+    return RUSHCORD_AI_AVATAR_URL;
   }
   const u = users.find((x) => String(x._id) === sid);
   return u?.profilePic || "/avatar.png";

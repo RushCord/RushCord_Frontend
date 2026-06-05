@@ -4,6 +4,11 @@ import { axiosInstance } from "../lib/axios";
 import { uploadFileViaPresign } from "../lib/uploadMedia.js";
 import { useAuthStore } from "./useAuthStore";
 import { loadRecentConversations } from "../lib/recentConversationsCache.js";
+import {
+  AI_BOT_SENDER_ID,
+  buildAiHistoryPayload,
+  isSummarizePrompt,
+} from "../lib/aiChatUtils.js";
 
 export const useChatStore = create((set, get) => ({
   messages: [],
@@ -959,51 +964,36 @@ export const useChatStore = create((set, get) => ({
     const prompt = String(promptText || "").trim();
     if (!prompt) return;
 
+    if (isSummarizePrompt(prompt)) {
+      await get().aiSummarizeLast20();
+      return;
+    }
+
     const { messages, users, selectedConversation } = get();
     const { authUser } = useAuthStore.getState();
+    const userId = String(authUser?._id || "");
 
-    // Take last 20 non-system messages as context (best-effort).
-    const context = (Array.isArray(messages) ? messages : [])
-      .filter((m) => m && !m.isSystem && !m.isDeletedForMe && !m.isRecalled)
-      .slice(-20)
-      .map((m) => {
-        const senderId = String(m.senderId || "");
-        const senderName =
-          senderId === String(authUser?._id || "")
-            ? "Bạn"
-            : users.find((u) => String(u._id) === senderId)?.fullName || senderId || "Người dùng";
-        const content = String(m.text || "").trim();
-        return {
-          role: "user",
-          content: content ? `${senderName}: ${content}` : `${senderName}: (đính kèm)`,
-        };
-      });
-
+    const context = buildAiHistoryPayload(messages, userId, users, 20);
     const now = Date.now();
-    const userLocalMessage = {
-      _id: `ai-user-${now}`,
-      senderId: authUser?._id || "me",
-      text: `@RushCord ${prompt}`,
-      createdAt: new Date(now).toISOString(),
-      conversationId: selectedConversation?.conversationId,
-    };
-    set({ messages: [...messages, userLocalMessage], isAiBusy: true });
+    set({ isAiBusy: true });
 
     try {
-      const payload = { messages: [...context, { role: "user", content: prompt }] };
+      const payload = {
+        messages: [...context, { role: "user", content: prompt }],
+      };
       const res = await axiosInstance.post("/ai/chat", payload);
       const reply = String(res?.data?.reply || "").trim();
 
       const botLocalMessage = {
-        _id: `ai-bot-${now + 1}`,
-        senderId: "RushCordAI",
+        _id: `ai-bot-${now}`,
+        senderId: AI_BOT_SENDER_ID,
         text: reply || "(AI không trả lời)",
-        createdAt: new Date(now + 1).toISOString(),
+        createdAt: new Date(now).toISOString(),
         conversationId: selectedConversation?.conversationId,
+        isAiLocalOnly: true,
       };
       set((s) => ({ messages: [...(s.messages || []), botLocalMessage] }));
     } catch (error) {
-      // Useful debugging for browser "Network Error" cases (CORS/blocked/timeout).
       // eslint-disable-next-line no-console
       console.error("[RushCordAI] /v1/chat failed", {
         message: error?.message,
@@ -1025,42 +1015,26 @@ export const useChatStore = create((set, get) => ({
   aiSummarizeLast20: async () => {
     const { messages, users, selectedConversation } = get();
     const { authUser } = useAuthStore.getState();
+    const userId = String(authUser?._id || "");
 
-    const last20 = (Array.isArray(messages) ? messages : [])
-      .filter((m) => m && !m.isSystem && !m.isDeletedForMe && !m.isRecalled)
-      .slice(-20);
-
-    if (last20.length === 0) {
+    const context = buildAiHistoryPayload(messages, userId, users, 20);
+    if (context.length === 0) {
       toast.error("Chưa có tin nhắn để tóm tắt");
       return;
     }
 
-    const payload = {
-      messages: last20.map((m) => {
-        const senderId = String(m.senderId || "");
-        const senderName =
-          senderId === String(authUser?._id || "")
-            ? "Bạn"
-            : users.find((u) => String(u._id) === senderId)?.fullName || senderId || "Người dùng";
-        const content = String(m.text || "").trim();
-        return {
-          role: "user",
-          content: content ? `${senderName}: ${content}` : `${senderName}: (đính kèm)`,
-        };
-      }),
-    };
-
     const now = Date.now();
     set({ isAiBusy: true });
     try {
-      const res = await axiosInstance.post("/ai/summarize", payload);
+      const res = await axiosInstance.post("/ai/summarize", { messages: context });
       const summary = String(res?.data?.summary || "").trim();
       const botLocalMessage = {
         _id: `ai-summary-${now}`,
-        senderId: "RushCordAI",
+        senderId: AI_BOT_SENDER_ID,
         text: summary ? `Tóm tắt 20 tin nhắn mới nhất:\n${summary}` : "(Không có tóm tắt)",
         createdAt: new Date(now).toISOString(),
         conversationId: selectedConversation?.conversationId,
+        isAiLocalOnly: true,
       };
       set((s) => ({ messages: [...(s.messages || []), botLocalMessage] }));
     } catch (error) {
@@ -1079,6 +1053,25 @@ export const useChatStore = create((set, get) => ({
       toast.error(msg);
     } finally {
       set({ isAiBusy: false });
+    }
+  },
+
+  dismissAiMessage: (messageId) => {
+    const id = String(messageId || "");
+    if (!id) return;
+    set((s) => ({
+      messages: (s.messages || []).filter((m) => String(m._id) !== id),
+    }));
+  },
+
+  sendAiDraftToConversation: async (text) => {
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return false;
+    try {
+      await get().sendMessage({ text: trimmed });
+      return true;
+    } catch {
+      return false;
     }
   },
   // =========================

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Hash, Loader2, Search, X } from "lucide-react";
+import { AI_BOT_SENDER_ID, RUSHCORD_AI_DISPLAY_NAME } from "../lib/aiChatUtils";
 import { useChatStore } from "../store/useChatStore";
 import { useAuthStore } from "../store/useAuthStore";
 
@@ -111,7 +112,7 @@ export default function MessageSearchModal({
     (senderId) => {
       const id = String(senderId || "");
       if (id === String(authUser?._id)) return "Bạn";
-      if (id === "RushCordAI") return "RushCord AI";
+      if (id === AI_BOT_SENDER_ID) return RUSHCORD_AI_DISPLAY_NAME;
       const u = users.find((x) => String(x._id) === id);
       return u?.fullName || "Thành viên";
     },

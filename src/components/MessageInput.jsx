@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
 import {
   Plus,
@@ -10,7 +10,16 @@ import {
   Play,
   Mic,
   Square,
+  AtSign,
+  Bot,
 } from "lucide-react";
+import {
+  BOT_PROMPT_SUGGESTIONS,
+  getMentionRange,
+  isBotPromptMode,
+  isRushCordMention,
+  stripRushCordMention,
+} from "../lib/aiChatUtils";
 import toast from "react-hot-toast";
 import EmojiPicker from "emoji-picker-react";
 import { useAuthStore } from "../store/useAuthStore";
@@ -20,6 +29,63 @@ function formatRecordMs(ms) {
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function MentionOptionRow({ suggestion, onSelect }) {
+  const isBot = suggestion.kind === "bot";
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(suggestion)}
+      className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-(--discord-hover)"
+    >
+      {isBot ? (
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-green-600 to-teal-600 text-white shadow-sm">
+          <Bot className="size-5" />
+        </span>
+      ) : (
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-(--discord-active) text-sm font-semibold text-(--discord-accent)">
+          {(suggestion.label || "?").charAt(1).toUpperCase()}
+        </span>
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold text-(--discord-text)">
+          {suggestion.label}
+        </span>
+        <span className="block truncate text-xs text-(--discord-text-muted)">
+          {suggestion.subtitle}
+        </span>
+      </span>
+      <span className="rounded-full bg-(--discord-active) px-2 py-1 text-[10px] font-semibold text-(--discord-accent)">
+        {isBot ? "@RushCord" : "@member"}
+      </span>
+    </button>
+  );
+}
+
+function BotPromptRow({ prompt, onSelect }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-(--discord-hover)"
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-(--discord-active) text-(--discord-accent) shadow-sm">
+        <Bot className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold text-(--discord-text)">
+          {prompt.label}
+        </span>
+        <span className="block truncate text-xs text-(--discord-text-muted)">
+          {prompt.subtitle}
+        </span>
+      </span>
+      <span className="rounded-full bg-(--discord-active) px-2 py-1 text-[10px] font-semibold text-(--discord-accent)">
+        Prompt
+      </span>
+    </button>
+  );
 }
 
 const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
@@ -33,12 +99,106 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
     setAiMode,
     aiChatInConversation,
     isAiBusy,
+    users,
   } = useChatStore();
   const [showEmoji, setShowEmoji] = useState(false);
+  const [mentionRange, setMentionRange] = useState(null);
+  const textInputRef = useRef(null);
   const [files, setFiles] = useState([]);
   const socket = useAuthStore((s) => s.socket);
   const selectedConversation = useChatStore((s) => s.selectedConversation);
   const selectedChannel = useChatStore((s) => s.selectedChannel);
+  const authUser = useAuthStore((s) => s.authUser);
+
+  const isGroupChat = selectedConversation?.type === "GROUP";
+
+  const mentionSuggestions = useMemo(() => {
+    const suggestions = [
+      {
+        id: "rushcord-ai",
+        kind: "bot",
+        label: "@RushCord",
+        searchLabel: "rushcord",
+        subtitle: "Trợ lý AI trong cuộc chat",
+      },
+    ];
+    if (isGroupChat) {
+      (users || []).forEach((u) => {
+        const memberId = String(u?._id || "");
+        if (!memberId || memberId === String(authUser?._id || "")) return;
+        const name = String(u.fullName || memberId).trim();
+        suggestions.push({
+          id: memberId,
+          kind: "member",
+          label: `@${name}`,
+          searchLabel: name.toLowerCase(),
+          subtitle: "Thành viên trong nhóm",
+        });
+      });
+    }
+    return suggestions;
+  }, [authUser?._id, isGroupChat, users]);
+
+  const botPromptMode = useMemo(
+    () => isBotPromptMode(text, mentionRange),
+    [mentionRange, text],
+  );
+
+  const filteredSuggestions = useMemo(() => {
+    const q = mentionRange?.query?.trim().toLowerCase() || "";
+    return mentionSuggestions.filter((item) => {
+      if (!q) return true;
+      return (
+        item.searchLabel.includes(q) ||
+        item.label.toLowerCase().includes(q)
+      );
+    });
+  }, [mentionRange?.query, mentionSuggestions]);
+
+  const syncMentionState = useCallback((value, caret) => {
+    setMentionRange(getMentionRange(value, caret));
+  }, []);
+
+  const insertMention = useCallback(
+    (suggestion) => {
+      if (!mentionRange) return;
+      const token =
+        suggestion.kind === "bot" ? "@RushCord " : `${suggestion.label} `;
+      const nextText = `${text.slice(0, mentionRange.start)}${token}${text.slice(mentionRange.end)}`;
+      const caret = mentionRange.start + token.length;
+      setText(nextText);
+      setMentionRange(null);
+      setAiMode(suggestion.kind === "bot");
+      requestAnimationFrame(() => {
+        const el = textInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(caret, caret);
+      });
+    },
+    [mentionRange, setAiMode, text],
+  );
+
+  const insertBotPrompt = useCallback(
+    (promptLabel) => {
+      const botTokenMatch = text.match(/(^|[\s(])@RushCord(?:\s*)$/i);
+      if (!botTokenMatch) return;
+      const prefix = botTokenMatch[1] || "";
+      const start = botTokenMatch.index ?? 0;
+      const nextText = `${text.slice(0, start)}${prefix}@RushCord ${promptLabel} `;
+      const caret = nextText.length;
+      setText(nextText);
+      setMentionRange(null);
+      setAiMode(true);
+      requestAnimationFrame(() => {
+        const el = textInputRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(caret, caret);
+      });
+    },
+    [setAiMode, text],
+  );
   const typingDebounceRef = useRef(null);
   const lastTypingSentAtRef = useRef(0);
   const typingActiveRef = useRef(false);
@@ -417,7 +577,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
 
     try {
       const trimmed = text.trim();
-      const isRushCordTrigger = /^@RushCord\b/i.test(trimmed);
+      const isRushCordTrigger = isRushCordMention(trimmed);
       if (typingActiveRef.current) {
         emitTyping(false);
         typingActiveRef.current = false;
@@ -431,9 +591,11 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
 
       // AI mode: only for plain text (no attachments)
       if (isRushCordTrigger && files.length === 0) {
-        const prompt = trimmed.replace(/^@RushCord\b/i, "").trim();
+        const prompt = stripRushCordMention(trimmed);
         await aiChatInConversation(prompt);
         setText("");
+        setMentionRange(null);
+        setAiMode(false);
         return;
       }
 
@@ -578,8 +740,39 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
 
       <form
         onSubmit={handleSendMessage}
-        className="flex items-center gap-2 rounded-lg bg-(--discord-panel-strong) px-1 py-1"
+        className="relative flex items-center gap-2 rounded-lg bg-(--discord-panel-strong) px-1 py-1"
       >
+        {(botPromptMode ||
+          (mentionRange && filteredSuggestions.length > 0)) && (
+          <div className="absolute bottom-full left-1 z-30 mb-2 w-[min(420px,calc(100vw-2rem))] rounded-[1.25rem] border border-(--discord-border) bg-(--discord-panel-strong) p-2 shadow-[0_20px_60px_rgba(15,23,42,0.14)] backdrop-blur-xl">
+            <div className="flex items-center justify-between px-2 py-1.5">
+              <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-(--discord-accent)">
+                <AtSign className="size-3.5" />
+                {botPromptMode ? "Gợi ý bot" : "Gợi ý @"}
+              </div>
+              <span className="text-[11px] text-(--discord-text-faint)">
+                {botPromptMode ? "Chọn để điền prompt" : "Click để chèn"}
+              </span>
+            </div>
+            <div className="max-h-64 overflow-y-auto p-1">
+              {botPromptMode
+                ? BOT_PROMPT_SUGGESTIONS.map((prompt) => (
+                    <BotPromptRow
+                      key={prompt.id}
+                      prompt={prompt}
+                      onSelect={() => insertBotPrompt(prompt.label)}
+                    />
+                  ))
+                : filteredSuggestions.map((suggestion) => (
+                    <MentionOptionRow
+                      key={suggestion.id}
+                      suggestion={suggestion}
+                      onSelect={insertMention}
+                    />
+                  ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-1 items-center gap-2">
           <button
             type="button"
@@ -591,6 +784,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
             <Plus size={18} />
           </button>
           <input
+            ref={textInputRef}
             type="text"
             className="discord-input-reset h-10 w-full text-sm text-(--discord-text) disabled:cursor-not-allowed disabled:opacity-50 sm:text-[15px]"
             placeholder={
@@ -599,18 +793,20 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
                 : editingMessage
                   ? "Edit message..."
                   : aiMode
-                    ? "Chat với RushCordAI... (gõ @RushCord <câu hỏi>)"
+                    ? "Chat với RushCord AI... (@RushCord <câu hỏi>)"
                     : `Nhắn #${selectedConversation?.title || "channel"}`
             }
-            disabled={isRecording}
+            disabled={isRecording || isAiBusy}
             value={text}
             onChange={(e) => {
               const next = e.target.value;
+              const caret = e.target.selectionStart ?? next.length;
               setText(next);
+              syncMentionState(next, caret);
 
               const trimmed = next.trim();
               const hasText = trimmed.length > 0;
-              const isRushCord = /^@RushCord\b/i.test(trimmed);
+              const isRushCord = isRushCordMention(trimmed);
               setAiMode(isRushCord);
 
               // Debounce + throttle to avoid spamming socket on each keystroke.
@@ -635,6 +831,18 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
                 typingActiveRef.current = true;
               }, 250);
             }}
+            onClick={(e) =>
+              syncMentionState(
+                e.currentTarget.value,
+                e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+              )
+            }
+            onKeyUp={(e) =>
+              syncMentionState(
+                e.currentTarget.value,
+                e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+              )
+            }
           />
           <input
             type="file"

@@ -10,7 +10,12 @@ import { formatMessageTime } from "../lib/utils";
 import VideoCall from "../components/VideoCall";
 import GroupVideoCall from "../components/GroupVideoCall";
 import { getFileIcon } from "../lib/utils";
-import { Smile, MoreHorizontal, Play, Pause, Mic, Volume2 } from "lucide-react";
+import { Smile, MoreHorizontal, Play, Pause, Mic, Volume2, Trash2, Send } from "lucide-react";
+import {
+  isAiBotMessage,
+  RUSHCORD_AI_AVATAR_URL,
+  RUSHCORD_AI_DISPLAY_NAME,
+} from "../lib/aiChatUtils";
 import EmojiPicker from "emoji-picker-react";
 import MediaLightboxModal from "./MediaLightboxModal";
 import toast from "react-hot-toast";
@@ -201,6 +206,8 @@ const ChatContainer = () => {
     highlightMessageId,
     pendingScrollMessageId,
     clearMessageSearchHighlight,
+    dismissAiMessage,
+    sendAiDraftToConversation,
   } = useChatStore();
 
   const { authUser, incomingCall, clearIncomingCall, socket } = useAuthStore();
@@ -267,6 +274,7 @@ const ChatContainer = () => {
   const [reactionPickerStyle, setReactionPickerStyle] = useState(null);
   const reactButtonRef = useRef(null);
   const [mediaPreview, setMediaPreview] = useState(null);
+  const [aiSendConfirmMessage, setAiSendConfirmMessage] = useState(null);
 
   const updateReactionPickerPosition = useCallback(() => {
     const el = reactButtonRef.current;
@@ -956,13 +964,17 @@ const ChatContainer = () => {
                   {message.text || ""}
                 </div>
               ) : (
+                (() => {
+                  const isBot = isAiBotMessage(message.senderId);
+                  const isOwn =
+                    !isBot &&
+                    String(message.senderId) === String(authUser?._id);
+                  return (
                 <div
                   key={message._id}
                   data-message-id={message._id}
                   className={`message-row group relative flex w-full gap-3 px-3 py-1 ${
-                    String(message.senderId) === String(authUser?._id)
-                      ? "justify-end"
-                      : "justify-start"
+                    isOwn ? "justify-end" : "justify-start"
                   } ${
                     String(highlightMessageId) === String(message._id)
                       ? "message-search-highlight"
@@ -972,10 +984,10 @@ const ChatContainer = () => {
                 >
                   <img
                     src={
-                      String(message.senderId) === String(authUser?._id)
+                      isOwn
                         ? authUser.profilePic || "/avatar.png"
-                        : String(message.senderId) === "RushCordAI"
-                          ? "https://rushcord-media-448772857696-ap-southeast-1.s3.ap-southeast-1.amazonaws.com/AI/RushCordAI.png"
+                        : isBot
+                          ? RUSHCORD_AI_AVATAR_URL
                           : (() => {
                               const sender = users.find(
                                 (u) =>
@@ -986,33 +998,72 @@ const ChatContainer = () => {
                     }
                     alt="profile"
                     className={`mt-1 size-10 rounded-full object-cover ${
-                      String(message.senderId) === String(authUser?._id)
-                        ? "order-2"
-                        : "order-1"
+                      isOwn ? "order-2" : "order-1"
                     }`}
                   />
                   <div
                     className={`relative min-w-0 max-w-[72%] rounded-2xl px-3 py-2 ${
-                      String(message.senderId) === String(authUser?._id)
+                      isOwn
                         ? "message-bubble-sent"
                         : "message-bubble-received"
-                    } ${String(message.senderId) === String(authUser?._id) ? "order-1" : "order-2"}`}
+                    } ${isOwn ? "order-1" : "order-2"}`}
                   >
+                    {isBot ? (
+                      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-(--discord-accent)">
+                          {RUSHCORD_AI_DISPLAY_NAME} (chỉ bạn thấy)
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const t = String(message.text || "").trim();
+                              if (!t) return;
+                              setAiSendConfirmMessage(message);
+                            }}
+                            className="flex items-center gap-1 rounded-full border border-(--discord-border) bg-(--discord-panel-strong) px-2 py-1 text-xs font-semibold text-(--discord-accent) shadow-sm hover:bg-(--discord-hover)"
+                            title="Gửi vào hội thoại"
+                          >
+                            <Send className="size-3.5" />
+                            Gửi
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const t = String(message.text || "").trim();
+                              if (!t) return;
+                              navigator.clipboard?.writeText(t);
+                              toast.success("Đã sao chép");
+                            }}
+                            className="text-xs font-semibold text-(--discord-accent) underline underline-offset-2"
+                          >
+                            Sao chép
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => dismissAiMessage(message._id)}
+                            className="flex size-7 items-center justify-center rounded-full text-(--discord-text-muted) transition hover:bg-(--discord-hover) hover:text-(--discord-accent)"
+                            title="Xóa tin nhắn AI"
+                            aria-label="Xóa tin nhắn AI"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
                     <div
                       className={`mb-0.5 flex items-end gap-2 ${
-                        String(message.senderId) === String(authUser?._id)
-                          ? "justify-end"
-                          : ""
+                        isOwn ? "justify-end" : ""
                       }`}
                     >
                       <span
                         className={`text-[14px] font-bold ${
-                          String(message.senderId) === String(authUser?._id)
+                          isOwn
                             ? "message-name-sent"
                             : "message-name-received"
                         }`}
                       >
-                        {String(message.senderId) === String(authUser?._id)
+                        {isOwn
                           ? authUser?.fullName || "You"
                           : users.find(
                               (u) => String(u._id) === String(message.senderId),
@@ -1020,7 +1071,7 @@ const ChatContainer = () => {
                       </span>
                       <time
                         className={`text-[11px] ${
-                          String(message.senderId) === String(authUser?._id)
+                          isOwn
                             ? "message-meta-sent"
                             : "message-meta-received"
                         }`}
@@ -1028,9 +1079,10 @@ const ChatContainer = () => {
                         {formatMessageTime(message.createdAt)}
                       </time>
                     </div>
+                    )}
                     <div
                       className={`text-[16px] leading-snug ${
-                        String(message.senderId) === String(authUser?._id)
+                        isOwn
                           ? "message-body-sent text-right"
                           : "message-body-received"
                       }`}
@@ -1217,15 +1269,13 @@ const ChatContainer = () => {
                         </>
                       )}
                     </div>
-                    {!message.isRecalled && !message.isDeletedForMe && (
+                    {!isBot && !message.isRecalled && !message.isDeletedForMe && (
                       <div className="mt-1">{renderReactions(message)}</div>
                     )}
-                    {!message.isRecalled && !message.isDeletedForMe && (
+                    {!isBot && !message.isRecalled && !message.isDeletedForMe && (
                       <div
                         className={`pointer-events-none absolute top-1/2 z-20 flex -translate-y-1/2 items-center gap-1 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 ${
-                          String(message.senderId) === String(authUser?._id)
-                            ? "-left-20"
-                            : "-right-16"
+                          isOwn ? "-left-20" : "-right-16"
                         }`}
                       >
                         <div className="relative" data-react-picker>
@@ -1365,7 +1415,8 @@ const ChatContainer = () => {
                     )}
                   </div>
                 </div>
-              ),
+                  );
+                })(),
             )}
           </div>
           {selectedConversation && isTyping && (
@@ -1386,6 +1437,67 @@ const ChatContainer = () => {
           </div>
         </>
       ) : null}
+
+      {aiSendConfirmMessage && (
+        <div
+          className="discord-modal-scrim fixed inset-0 z-55 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setAiSendConfirmMessage(null);
+          }}
+          role="presentation"
+        >
+          <div
+            className="discord-modal-card w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ai-send-dialog-title"
+          >
+            <div className="flex justify-between items-start gap-3 p-4 border-b border-base-300">
+              <h2
+                id="ai-send-dialog-title"
+                className="text-base-content font-semibold text-lg pr-2"
+              >
+                Gửi tin nhắn
+              </h2>
+              <button
+                type="button"
+                onClick={() => setAiSendConfirmMessage(null)}
+                className="discord-icon-button flex size-9 items-center justify-center rounded-full bg-white/5"
+                aria-label="Đóng"
+              >
+                <MoreHorizontal className="size-4 rotate-45" />
+              </button>
+            </div>
+            <p className="px-4 pt-4 text-sm text-base-content/70">
+              Bạn có chắc muốn gửi nội dung này vào hội thoại hiện tại?
+            </p>
+            <div className="flex justify-end gap-2 p-4">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setAiSendConfirmMessage(null)}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={async () => {
+                  const msg = aiSendConfirmMessage;
+                  const text = String(msg?.text || "").trim();
+                  setAiSendConfirmMessage(null);
+                  if (!text) return;
+                  const ok = await sendAiDraftToConversation(text);
+                  if (ok) dismissAiMessage(msg._id);
+                }}
+              >
+                Gửi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {recallPromptMessage && (
         <div
