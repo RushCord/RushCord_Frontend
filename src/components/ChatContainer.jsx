@@ -1416,7 +1416,8 @@ const ChatContainer = () => {
                   </div>
                 </div>
                   );
-                })(),
+                })()
+              )
             )}
           </div>
           {selectedConversation && isTyping && (
