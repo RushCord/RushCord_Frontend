@@ -7,6 +7,7 @@ import { loadRecentConversations } from "../lib/recentConversationsCache.js";
 import {
   AI_BOT_SENDER_ID,
   buildAiHistoryPayload,
+  buildSummarizeHistoryPayload,
   isSummarizePrompt,
 } from "../lib/aiChatUtils.js";
 
@@ -975,6 +976,7 @@ export const useChatStore = create((set, get) => ({
 
     const context = buildAiHistoryPayload(messages, userId, users, 20);
     const now = Date.now();
+    await Promise.resolve();
     set({ isAiBusy: true });
 
     try {
@@ -1017,13 +1019,14 @@ export const useChatStore = create((set, get) => ({
     const { authUser } = useAuthStore.getState();
     const userId = String(authUser?._id || "");
 
-    const context = buildAiHistoryPayload(messages, userId, users, 20);
+    const context = buildSummarizeHistoryPayload(messages, userId, users);
     if (context.length === 0) {
       toast.error("Chưa có tin nhắn để tóm tắt");
       return;
     }
 
     const now = Date.now();
+    await Promise.resolve();
     set({ isAiBusy: true });
     try {
       const res = await axiosInstance.post("/ai/summarize", { messages: context });
@@ -1031,7 +1034,9 @@ export const useChatStore = create((set, get) => ({
       const botLocalMessage = {
         _id: `ai-summary-${now}`,
         senderId: AI_BOT_SENDER_ID,
-        text: summary ? `Tóm tắt 20 tin nhắn mới nhất:\n${summary}` : "(Không có tóm tắt)",
+        text: summary
+          ? `Tóm tắt cuộc trò chuyện:\n${summary}`
+          : "(Không có tóm tắt)",
         createdAt: new Date(now).toISOString(),
         conversationId: selectedConversation?.conversationId,
         isAiLocalOnly: true,

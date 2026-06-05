@@ -43,7 +43,10 @@ body {
   --discord-text-muted: color-mix(in srgb, var(--color-base-content, #f2f3f5) 62%, transparent);
   --discord-text-faint: color-mix(in srgb, var(--color-base-content, #f2f3f5) 42%, transparent);
   --discord-accent: var(--color-primary, #5865f2);
+  --discord-accent-strong: var(--color-primary, #5865f2);
   --discord-accent-contrast: var(--color-primary-content, #ffffff);
+  --discord-active-text: #ffffff;
+  --discord-active-muted: rgba(255, 255, 255, 0.72);
   --discord-overlay: rgba(0, 0, 0, 0.85);
   --discord-success: #3ba55d;
   --discord-danger: #da373c;
@@ -137,6 +140,18 @@ body {
     in srgb,
     var(--color-base-content, #1e1f22) 52%,
     transparent
+  );
+  --discord-active: color-mix(
+    in srgb,
+    var(--color-primary) 14%,
+    var(--color-base-200) 86%
+  );
+  --discord-active-text: var(--discord-text);
+  --discord-active-muted: var(--discord-text-muted);
+  --discord-accent-strong: color-mix(
+    in srgb,
+    var(--color-primary) 68%,
+    var(--color-base-content) 32%
   );
 }
 
@@ -422,6 +437,74 @@ body {
 
 .message-body-received {
   color: var(--message-received-text);
+}
+
+.message-media {
+  --message-media-width: 280px;
+  --message-media-max-height: 360px;
+  display: inline-block;
+  max-width: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: var(--discord-radius);
+  line-height: 0;
+  vertical-align: top;
+}
+
+.message-media-content {
+  display: block;
+  object-fit: contain;
+}
+
+.message-media-gallery {
+  --message-gallery-cell-size: 160px;
+  display: grid;
+  grid-template-columns: repeat(3, var(--message-gallery-cell-size));
+  grid-auto-rows: var(--message-gallery-cell-size);
+  gap: 8px;
+  align-items: start;
+}
+
+.message-gallery-cell {
+  position: relative;
+  box-sizing: border-box;
+  width: var(--message-gallery-cell-size);
+  height: var(--message-gallery-cell-size);
+  min-width: var(--message-gallery-cell-size);
+  min-height: var(--message-gallery-cell-size);
+  max-width: var(--message-gallery-cell-size);
+  max-height: var(--message-gallery-cell-size);
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  border-radius: var(--discord-radius);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.message-gallery-cell:hover {
+  opacity: 0.9;
+}
+
+.message-gallery-cell__img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.message-file-card {
+  display: flex;
+  width: 280px;
+  height: 72px;
+  max-width: 100%;
+  flex-shrink: 0;
+  align-items: center;
 }
 
 .message-embed {

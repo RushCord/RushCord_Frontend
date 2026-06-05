@@ -11,7 +11,7 @@ export default function NavigationItem({
       onClick={onClick}
       className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-[15px] ${
         active
-          ? "bg-(--discord-active) text-white"
+          ? "bg-(--discord-active) text-(--discord-active-text)"
           : "text-(--discord-text) hover:bg-(--discord-hover)"
       } ${className}`}
     >

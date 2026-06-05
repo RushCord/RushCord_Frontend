@@ -6,7 +6,7 @@ import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
-import { formatMessageTime } from "../lib/utils";
+import { formatMessageTime, isVoiceFileName } from "../lib/utils";
 import VideoCall from "../components/VideoCall";
 import GroupVideoCall from "../components/GroupVideoCall";
 import { getFileIcon } from "../lib/utils";
@@ -55,6 +55,150 @@ const formatSeconds = (sec) => {
   return `${m}:${String(r).padStart(2, "0")}`;
 };
 
+const MESSAGE_MEDIA_WIDTH = 280;
+const MESSAGE_MEDIA_MAX_HEIGHT = 360;
+
+const computeMediaDisplaySize = (
+  naturalWidth,
+  naturalHeight,
+  maxWidth = MESSAGE_MEDIA_WIDTH,
+  maxHeight = MESSAGE_MEDIA_MAX_HEIGHT,
+) => {
+  if (!naturalWidth || !naturalHeight) {
+    return { width: maxWidth, height: maxWidth };
+  }
+
+  let width = maxWidth;
+  let height = (naturalHeight / naturalWidth) * maxWidth;
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = (naturalWidth / naturalHeight) * maxHeight;
+  }
+
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+  };
+};
+
+const GALLERY_CELL_SIZE = 160;
+
+const MessageMediaImage = ({
+  src,
+  alt,
+  onClick,
+  className = "",
+  maxWidth = MESSAGE_MEDIA_WIDTH,
+  maxHeight = MESSAGE_MEDIA_MAX_HEIGHT,
+  cellSize = null,
+}) => {
+  const [size, setSize] = useState(null);
+
+  const handleLoad = (e) => {
+    const { naturalWidth, naturalHeight } = e.currentTarget;
+    setSize(computeMediaDisplaySize(naturalWidth, naturalHeight, maxWidth, maxHeight));
+  };
+
+  const buttonStyle = cellSize
+    ? { width: cellSize, height: cellSize }
+    : size
+      ? { width: size.width, height: size.height }
+      : cellSize == null && maxWidth
+        ? { width: maxWidth, minHeight: 1 }
+        : undefined;
+
+  return (
+    <button
+      type="button"
+      className={`message-media cursor-pointer border-0 bg-transparent p-0 hover:opacity-90 ${
+        cellSize ? "flex items-center justify-center" : ""
+      } ${className}`}
+      style={buttonStyle}
+      onClick={onClick}
+      aria-label="Xem ảnh"
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="message-media-content"
+        style={size ? { width: size.width, height: size.height } : undefined}
+        onLoad={handleLoad}
+      />
+    </button>
+  );
+};
+
+const MessageGalleryImage = ({ src, onClick }) => (
+  <button
+    type="button"
+    className="message-gallery-cell"
+    onClick={onClick}
+    aria-label="Xem ảnh"
+  >
+    <img src={src} alt="attachment" className="message-gallery-cell__img" />
+  </button>
+);
+
+const MessageMediaGallery = ({ images, onPreview }) => {
+  const urls = images.slice(0, 5);
+
+  return (
+    <div
+      className="message-media-gallery mt-1 w-fit max-w-full"
+      style={{ "--message-gallery-cell-size": `${GALLERY_CELL_SIZE}px` }}
+    >
+      {urls.map((url) => (
+        <MessageGalleryImage
+          key={url}
+          src={url}
+          onClick={() => onPreview(url)}
+        />
+      ))}
+    </div>
+  );
+};
+
+const MessageMediaVideo = ({ src, onClick }) => {
+  const [size, setSize] = useState(null);
+
+  const handleLoadedMetadata = (e) => {
+    const { videoWidth, videoHeight } = e.currentTarget;
+    setSize(computeMediaDisplaySize(videoWidth, videoHeight));
+  };
+
+  return (
+    <button
+      type="button"
+      className="message-media message-embed group relative cursor-pointer overflow-hidden border-0 p-0 text-left"
+      style={size ? { width: size.width, height: size.height } : undefined}
+      onClick={onClick}
+      aria-label="Xem video"
+    >
+      <video
+        src={src}
+        muted
+        playsInline
+        preload="metadata"
+        className="message-media-content pointer-events-none"
+        style={size ? { width: size.width, height: size.height } : undefined}
+        onLoadedMetadata={handleLoadedMetadata}
+      />
+      <span
+        className="absolute inset-0 flex items-center justify-center transition group-hover:opacity-90"
+        style={{ backgroundColor: "var(--message-media-scrim)" }}
+      >
+        <span
+          className="flex size-12 items-center justify-center rounded-full"
+          style={{ backgroundColor: "var(--message-media-scrim)" }}
+        >
+          <Play className="ml-0.5 size-6 text-(--discord-accent-contrast)" />
+        </span>
+      </span>
+    </button>
+  );
+};
+
 const dmRoomName = (userA, userB) => {
   const [x, y] = [String(userA || ""), String(userB || "")].sort();
   return `DM#${x}#${y}`;
@@ -86,6 +230,7 @@ const AudioMessage = ({ url, fileName }) => {
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
 
+  const isVoice = isVoiceFileName(fileName);
   const safeName = fileName || "Voice message";
 
   useEffect(() => {
@@ -150,12 +295,11 @@ const AudioMessage = ({ url, fileName }) => {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Mic className="w-4 h-4 shrink-0 opacity-60" />
-            <div
-              className="truncate text-sm"
-              title={safeName}
-            >
-              {safeName}
-            </div>
+            {!isVoice ? (
+              <div className="truncate text-sm" title={safeName}>
+                {safeName}
+              </div>
+            ) : null}
             <div className="message-meta-received ml-auto shrink-0 text-xs tabular-nums">
               {formatSeconds(current)} / {formatSeconds(duration)}
             </div>
@@ -1010,7 +1154,7 @@ const ChatContainer = () => {
                   >
                     {isBot ? (
                       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-(--discord-accent)">
+                        <div className="text-xs font-semibold text-(--discord-accent-strong)">
                           {RUSHCORD_AI_DISPLAY_NAME} (chỉ bạn thấy)
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -1021,7 +1165,7 @@ const ChatContainer = () => {
                               if (!t) return;
                               setAiSendConfirmMessage(message);
                             }}
-                            className="flex items-center gap-1 rounded-full border border-(--discord-border) bg-(--discord-panel-strong) px-2 py-1 text-xs font-semibold text-(--discord-accent) shadow-sm hover:bg-(--discord-hover)"
+                            className="flex items-center gap-1 rounded-full border border-(--discord-border) bg-(--discord-panel-strong) px-2 py-1 text-xs font-semibold text-(--discord-accent-strong) shadow-sm hover:bg-(--discord-hover)"
                             title="Gửi vào hội thoại"
                           >
                             <Send className="size-3.5" />
@@ -1035,14 +1179,14 @@ const ChatContainer = () => {
                               navigator.clipboard?.writeText(t);
                               toast.success("Đã sao chép");
                             }}
-                            className="text-xs font-semibold text-(--discord-accent) underline underline-offset-2"
+                            className="text-xs font-semibold text-(--discord-accent-strong) underline underline-offset-2"
                           >
                             Sao chép
                           </button>
                           <button
                             type="button"
                             onClick={() => dismissAiMessage(message._id)}
-                            className="flex size-7 items-center justify-center rounded-full text-(--discord-text-muted) transition hover:bg-(--discord-hover) hover:text-(--discord-accent)"
+                            className="flex size-7 items-center justify-center rounded-full text-(--discord-text-muted) transition hover:bg-(--discord-hover) hover:text-(--discord-accent-strong)"
                             title="Xóa tin nhắn AI"
                             aria-label="Xóa tin nhắn AI"
                           >
@@ -1081,10 +1225,8 @@ const ChatContainer = () => {
                     </div>
                     )}
                     <div
-                      className={`text-[16px] leading-snug ${
-                        isOwn
-                          ? "message-body-sent text-right"
-                          : "message-body-received"
+                      className={`text-left text-[16px] leading-snug ${
+                        isOwn ? "message-body-sent" : "message-body-received"
                       }`}
                     >
                       {!message.isRecalled &&
@@ -1124,10 +1266,10 @@ const ChatContainer = () => {
                         <>
                           {/* 🖼️ IMAGE */}
                           {message.image && (
-                            <img
+                            <MessageMediaImage
                               src={message.image}
                               alt="attachment"
-                              className="mt-1 max-w-[320px] rounded cursor-pointer hover:opacity-90"
+                              className="mt-1"
                               onClick={() =>
                                 openMediaPreview("image", message.image)
                               }
@@ -1137,35 +1279,19 @@ const ChatContainer = () => {
                           {/* 🖼️ IMAGES (gallery) */}
                           {Array.isArray(message.images) &&
                             message.images.length > 0 && (
-                              <div
-                                className={`grid gap-2 ${
-                                  message.images.length === 1
-                                    ? "grid-cols-1"
-                                    : message.images.length === 2
-                                      ? "grid-cols-2"
-                                      : "grid-cols-3"
-                                }`}
-                              >
-                                {message.images.slice(0, 5).map((url) => (
-                                  <img
-                                    key={url}
-                                    src={url}
-                                    alt="attachment"
-                                    className="w-[220px] max-w-full rounded cursor-pointer object-cover hover:opacity-90"
-                                    onClick={() => openMediaPreview("image", url)}
-                                  />
-                                ))}
-                              </div>
+                              <MessageMediaGallery
+                                images={message.images}
+                                onPreview={(url) => openMediaPreview("image", url)}
+                              />
                             )}
 
                           {/* 📄 FILE / 🎞️ VIDEO / 🖼️ IMAGE (fallback) */}
                           {message.file ? (
                             typeof message.contentType === "string" &&
                             message.contentType.startsWith("image/") ? (
-                              <img
+                              <MessageMediaImage
                                 src={message.file}
                                 alt="attachment"
-                                className="max-w-[200px] rounded-lg cursor-pointer hover:opacity-90"
                                 onClick={() =>
                                   openMediaPreview(
                                     "image",
@@ -1177,9 +1303,8 @@ const ChatContainer = () => {
                               />
                             ) : typeof message.contentType === "string" &&
                               message.contentType.startsWith("video/") ? (
-                              <button
-                                type="button"
-                                className="message-embed group relative max-w-[320px] cursor-pointer overflow-hidden rounded text-left"
+                              <MessageMediaVideo
+                                src={message.file}
                                 onClick={() =>
                                   openMediaPreview(
                                     "video",
@@ -1188,27 +1313,7 @@ const ChatContainer = () => {
                                       getFileName(message.file),
                                   )
                                 }
-                                aria-label="Xem video"
-                              >
-                                <video
-                                  src={message.file}
-                                  muted
-                                  playsInline
-                                  preload="metadata"
-                                  className="pointer-events-none w-full"
-                                />
-                                <span
-                                  className="absolute inset-0 flex items-center justify-center transition group-hover:opacity-90"
-                                  style={{ backgroundColor: "var(--message-media-scrim)" }}
-                                >
-                                  <span
-                                    className="flex size-12 items-center justify-center rounded-full"
-                                    style={{ backgroundColor: "var(--message-media-scrim)" }}
-                                  >
-                                    <Play className="ml-0.5 size-6 text-(--discord-accent-contrast)" />
-                                  </span>
-                                </span>
-                              </button>
+                              />
                             ) : typeof message.contentType === "string" &&
                               message.contentType.startsWith("audio/") ? (
                               <AudioMessage
@@ -1222,7 +1327,7 @@ const ChatContainer = () => {
                                 href={message.file}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="message-embed mt-1 flex max-w-[320px] items-center gap-3 rounded px-3 py-2"
+                                className="message-file-card message-embed mt-1 gap-3 rounded px-3 py-2"
                               >
                                 {/* PREVIEW */}
                                 <div className="message-embed-icon flex h-12 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl">
@@ -1265,7 +1370,11 @@ const ChatContainer = () => {
                           ) : null}
 
                           {/* TEXT */}
-                          {message.text && <p>{message.text}</p>}
+                          {message.text && (
+                            <p className="whitespace-pre-wrap wrap-break-word">
+                              {message.text}
+                            </p>
+                          )}
                         </>
                       )}
                     </div>

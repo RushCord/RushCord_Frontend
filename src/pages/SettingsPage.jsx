@@ -262,9 +262,9 @@ export const SettingsPage = () => {
                           </div>
                         ) : (
                           <p
-                            className={`text-sm leading-snug ${
+                            className={`text-left text-sm leading-snug whitespace-pre-wrap wrap-break-word ${
                               message.isSent
-                                ? "message-body-sent text-right"
+                                ? "message-body-sent"
                                 : "message-body-received"
                             }`}
                           >

@@ -148,7 +148,7 @@ const SideBar = () => {
         title={title}
         className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition ${
           isSelected
-            ? "bg-(--discord-active) text-white"
+            ? "bg-(--discord-active) text-(--discord-active-text)"
             : "text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
         }`}
       >
@@ -168,7 +168,7 @@ const SideBar = () => {
             {timeLabel ? (
               <span
                 className={`ml-auto shrink-0 text-[11px] tabular-nums ${
-                  isSelected ? "text-white/70" : "text-(--discord-text-muted)"
+                  isSelected ? "text-(--discord-active-muted)" : "text-(--discord-text-muted)"
                 }`}
               >
                 {timeLabel}
@@ -177,7 +177,7 @@ const SideBar = () => {
           </div>
           <div
             className={`truncate text-xs ${
-              isSelected ? "text-white/75" : "text-(--discord-text-muted)"
+              isSelected ? "text-(--discord-active-muted)" : "text-(--discord-text-muted)"
             }`}
           >
             {previewText || (isGroup ? "Nhóm" : "Tin nhắn trực tiếp")}
@@ -488,7 +488,7 @@ const SideBar = () => {
                         onContextMenu={(e) => openChannelContextMenu(e, ch)}
                         className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-[15px] font-medium transition ${
                           active
-                            ? "bg-(--discord-active) text-white"
+                            ? "bg-(--discord-active) text-(--discord-active-text)"
                             : "text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
                         }`}
                       >
@@ -535,7 +535,7 @@ const SideBar = () => {
                         onContextMenu={(e) => openChannelContextMenu(e, ch)}
                         className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-[15px] font-medium transition ${
                           active
-                            ? "bg-(--discord-active) text-white"
+                            ? "bg-(--discord-active) text-(--discord-active-text)"
                             : "text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
                         }`}
                       >
@@ -608,7 +608,7 @@ const SideBar = () => {
                           }}
                           className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-[15px] font-medium transition ${
                             active
-                              ? "bg-(--discord-active) text-white"
+                              ? "bg-(--discord-active) text-(--discord-active-text)"
                               : "text-(--discord-text-muted) hover:bg-(--discord-hover) hover:text-(--discord-text)"
                           }`}
                         >

@@ -47,6 +47,17 @@ export function isSummarizePrompt(prompt) {
   return p === SUMMARIZE_PROMPT_LABEL.toLowerCase() || p.startsWith("tóm tắt");
 }
 
+/** Real chat messages eligible for summarize (excludes AI-local bubbles). */
+export function isSummarizableMessage(message) {
+  if (!message || message.isSystem || message.isDeletedForMe || message.isRecalled) {
+    return false;
+  }
+  if (message.isAiLocalOnly || isAiBotMessage(message.senderId)) {
+    return false;
+  }
+  return Boolean(String(message.text || "").trim());
+}
+
 /** Map UI messages to AI roles (bot = assistant, you = user, others = labeled user). */
 export function toAiHistoryTurn(message, currentUserId, users = []) {
   if (!message || message.isSystem || message.isDeletedForMe || message.isRecalled) {
@@ -69,10 +80,30 @@ export function toAiHistoryTurn(message, currentUserId, users = []) {
 }
 
 export function buildAiHistoryPayload(messages, currentUserId, users, limit = 20) {
-  return (Array.isArray(messages) ? messages : [])
+  const turns = (Array.isArray(messages) ? messages : [])
     .map((m) => toAiHistoryTurn(m, currentUserId, users))
-    .filter(Boolean)
-    .slice(-limit);
+    .filter(Boolean);
+  if (limit == null || !Number.isFinite(limit) || limit <= 0) {
+    return turns;
+  }
+  return turns.slice(-limit);
+}
+
+/** All summarizable messages currently loaded in the FE conversation. */
+export function buildSummarizeHistoryPayload(messages, currentUserId, users) {
+  return (Array.isArray(messages) ? messages : [])
+    .filter(isSummarizableMessage)
+    .map((m) => {
+      const senderId = String(m.senderId || "");
+      const raw = String(m.text || "").trim();
+      if (senderId === String(currentUserId || "")) {
+        return { role: "user", content: raw };
+      }
+      const name =
+        users.find((u) => String(u._id) === senderId)?.fullName || senderId || "Người dùng";
+      return { role: "user", content: `${name}: ${raw}` };
+    })
+    .filter(Boolean);
 }
 
 /** Detect `@` mention at caret (single-line input: query is suffix after last `@`). */

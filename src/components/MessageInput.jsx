@@ -44,7 +44,7 @@ function MentionOptionRow({ suggestion, onSelect }) {
           <Bot className="size-5" />
         </span>
       ) : (
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-(--discord-active) text-sm font-semibold text-(--discord-accent)">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-(--discord-active) text-sm font-semibold text-(--discord-accent-strong)">
           {(suggestion.label || "?").charAt(1).toUpperCase()}
         </span>
       )}
@@ -56,7 +56,7 @@ function MentionOptionRow({ suggestion, onSelect }) {
           {suggestion.subtitle}
         </span>
       </span>
-      <span className="rounded-full bg-(--discord-active) px-2 py-1 text-[10px] font-semibold text-(--discord-accent)">
+      <span className="rounded-full bg-(--discord-active) px-2 py-1 text-[10px] font-semibold text-(--discord-accent-strong)">
         {isBot ? "@RushCord" : "@member"}
       </span>
     </button>
@@ -70,7 +70,7 @@ function BotPromptRow({ prompt, onSelect }) {
       onClick={onSelect}
       className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-(--discord-hover)"
     >
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-(--discord-active) text-(--discord-accent) shadow-sm">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-(--discord-active) text-(--discord-accent-strong) shadow-sm">
         <Bot className="size-5" />
       </span>
       <span className="min-w-0 flex-1">
@@ -81,7 +81,7 @@ function BotPromptRow({ prompt, onSelect }) {
           {prompt.subtitle}
         </span>
       </span>
-      <span className="rounded-full bg-(--discord-active) px-2 py-1 text-[10px] font-semibold text-(--discord-accent)">
+      <span className="rounded-full bg-(--discord-active) px-2 py-1 text-[10px] font-semibold text-(--discord-accent-strong)">
         Prompt
       </span>
     </button>
@@ -592,10 +592,10 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
       // AI mode: only for plain text (no attachments)
       if (isRushCordTrigger && files.length === 0) {
         const prompt = stripRushCordMention(trimmed);
-        await aiChatInConversation(prompt);
         setText("");
         setMentionRange(null);
         setAiMode(false);
+        void aiChatInConversation(prompt);
         return;
       }
 
@@ -746,7 +746,7 @@ const MessageInput = ({ editingMessage = null, onCancelEdit = null }) => {
           (mentionRange && filteredSuggestions.length > 0)) && (
           <div className="absolute bottom-full left-1 z-30 mb-2 w-[min(420px,calc(100vw-2rem))] rounded-[1.25rem] border border-(--discord-border) bg-(--discord-panel-strong) p-2 shadow-[0_20px_60px_rgba(15,23,42,0.14)] backdrop-blur-xl">
             <div className="flex items-center justify-between px-2 py-1.5">
-              <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-(--discord-accent)">
+              <div className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-(--discord-accent-strong)">
                 <AtSign className="size-3.5" />
                 {botPromptMode ? "Gợi ý bot" : "Gợi ý @"}
               </div>

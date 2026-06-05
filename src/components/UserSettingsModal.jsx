@@ -71,7 +71,7 @@ export default function UserSettingsModal({ open, onClose }) {
                   onClick={() => setActiveSection(item.key)}
                   className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-[15px] ${
                     active
-                      ? "bg-(--discord-active) text-white"
+                      ? "bg-(--discord-active) text-(--discord-active-text)"
                       : "text-(--discord-text) hover:bg-(--discord-hover)"
                   }`}
                 >
@@ -98,8 +98,8 @@ export default function UserSettingsModal({ open, onClose }) {
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col bg-(--discord-panel)">
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-            <h2 className="text-lg font-semibold text-white">
+          <div className="flex items-center justify-between border-b border-(--discord-border) px-6 py-4">
+            <h2 className="text-lg font-semibold text-(--discord-text)">
               {SECTION_TITLES[activeSection] || "Cài đặt"}
             </h2>
             <button

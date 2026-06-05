@@ -1,3 +1,7 @@
+export function isVoiceFileName(fileName) {
+  return /^voice-\d+\./i.test(String(fileName || "").trim());
+}
+
 export function formatMessageTime(date) {
   return new Date(date).toLocaleTimeString("en-US", {
     hour: "2-digit",

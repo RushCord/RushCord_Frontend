@@ -458,7 +458,7 @@ const ChatHeader = ({ onCall, callDisabled = false }) => {
               onClick={() => setShowSettings((prev) => !prev)}
               className={`flex size-8 items-center justify-center rounded-md ${
                 showSettings
-                  ? "bg-(--discord-active) text-white"
+                  ? "bg-(--discord-active) text-(--discord-active-text)"
                   : "hover:bg-(--discord-hover) hover:text-(--discord-text)"
               }`}
               aria-label="Toggle details"
